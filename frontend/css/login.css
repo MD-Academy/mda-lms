@@ -20,7 +20,7 @@ body {
     position: relative;
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     overflow: hidden;
 }
 
@@ -61,14 +61,14 @@ body {
 .top-branding {
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 32px;
+    justify-content: flex-start;
+    gap: 28px;
 }
 
 .logo-large {
-    height: 100px;
+    height: 120px;
     width: auto;
-    max-width: 45%;
+    max-width: 42%;
     object-fit: contain;
 }
 
