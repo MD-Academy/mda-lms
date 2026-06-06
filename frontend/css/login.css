@@ -66,8 +66,9 @@ body {
 }
 
 .logo-large {
-    height: 140px;
+    height: 100px;
     width: auto;
+    max-width: 45%;
     object-fit: contain;
 }
 
