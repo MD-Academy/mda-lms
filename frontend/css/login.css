@@ -130,7 +130,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 16px;
-    padding-left: 8px;
+    padding-left: 32px;
 }
 
 .hero-title {
