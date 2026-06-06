@@ -133,12 +133,11 @@ body {
 }
 
 .hero-title {
-    font-size: 50px;
+    font-size: 46px;
     font-weight: 800;
     color: #ffffff;
-    line-height: 1.15;
+    line-height: 1.2;
     letter-spacing: -0.5px;
-    white-space: nowrap;
 }
 
 .hero-sub {
