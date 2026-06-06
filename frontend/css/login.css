@@ -66,9 +66,9 @@ body {
 }
 
 .logo-large {
-    height: 120px;
+    height: 160px;
     width: auto;
-    max-width: 42%;
+    max-width: 44%;
     object-fit: contain;
 }
 
@@ -134,18 +134,18 @@ body {
 }
 
 .hero-title {
-    font-size: 42px;
+    font-size: 58px;
     font-weight: 800;
     color: #ffffff;
-    line-height: 1.15;
-    letter-spacing: -0.5px;
+    line-height: 1.1;
+    letter-spacing: -1px;
 }
 
 .hero-sub {
-    font-size: 18px;
+    font-size: 22px;
     font-weight: 500;
     color: #4a90d9;
-    letter-spacing: 1px;
+    letter-spacing: 1.5px;
 }
 
 /* ── RIGHT PANEL ── */
