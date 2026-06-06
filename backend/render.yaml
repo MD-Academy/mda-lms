@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: mda-lms-backend
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: SUPABASE_URL
+        value: https://onyqepnxecihcyzxifiw.supabase.co
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: https://students.medicaldoctor-studies.com,https://admin.medicaldoctor-studies.com
