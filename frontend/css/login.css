@@ -463,10 +463,15 @@ body {
 
 /* ── RESPONSIVE ── */
 @media (max-width: 768px) {
-    .login-wrapper { flex-direction: column; overflow-y: auto; }
-    .left-panel { flex: 0 0 auto; padding: 32px 24px; min-height: 280px; }
-    .left-content { padding: 0; gap: 32px; }
-    .hero-title { font-size: 28px; }
-    .right-panel { flex: 1; padding: 24px 16px; }
-    body { overflow: auto; }
+    body { overflow-y: auto; height: auto; }
+    .login-wrapper { flex-direction: column; height: auto; min-height: 100vh; }
+    .left-panel { flex: 0 0 auto; padding: 28px 20px; justify-content: flex-start; }
+    .left-content { padding: 0; gap: 24px; width: 100%; }
+    .top-branding { gap: 16px; overflow: hidden; }
+    .logo-large { height: 72px; max-width: 44%; }
+    .brand-divider { height: 50px; }
+    .hero-title { font-size: 26px; letter-spacing: 0; }
+    .hero-sub { font-size: 15px; letter-spacing: 0.5px; }
+    .right-panel { flex: 0 0 auto; padding: 24px 16px 40px; }
+    .login-card { padding: 32px 24px; border-radius: 16px; max-width: 100%; }
 }
