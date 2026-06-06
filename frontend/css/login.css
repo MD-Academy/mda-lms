@@ -49,12 +49,11 @@ body {
 .left-content {
     position: relative;
     z-index: 2;
-    padding: 48px;
+    padding: 48px 52px;
     display: flex;
     flex-direction: column;
-    gap: 64px;
+    gap: 48px;
     width: 100%;
-    max-width: 600px;
 }
 
 /* ── BRANDING ROW ── */
@@ -66,9 +65,9 @@ body {
 }
 
 .logo-large {
-    height: 160px;
+    height: 180px;
     width: auto;
-    max-width: 44%;
+    max-width: 46%;
     object-fit: contain;
 }
 
@@ -134,7 +133,7 @@ body {
 }
 
 .hero-title {
-    font-size: 58px;
+    font-size: 64px;
     font-weight: 800;
     color: #ffffff;
     line-height: 1.1;
@@ -142,10 +141,10 @@ body {
 }
 
 .hero-sub {
-    font-size: 22px;
+    font-size: 24px;
     font-weight: 500;
     color: #4a90d9;
-    letter-spacing: 1.5px;
+    letter-spacing: 2px;
 }
 
 /* ── RIGHT PANEL ── */
