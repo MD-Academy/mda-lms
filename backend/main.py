@@ -4,8 +4,9 @@ import string
 from typing import Optional, List
 from datetime import date
 
-from fastapi import FastAPI, HTTPException, Header, Depends
+from fastapi import FastAPI, HTTPException, Header, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -35,6 +36,40 @@ app.add_middleware(
 )
 
 
+# ── GLOBAL ERROR HANDLERS ─────────────────────────────────────
+# Ensure EVERY response — including unhandled 500s — carries CORS
+# headers, so the browser shows the real error instead of a
+# misleading "blocked by CORS policy" message.
+
+def _cors_headers(request: Request) -> dict:
+    origin = request.headers.get("origin")
+    if origin and origin in ALLOWED_ORIGINS:
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+        }
+    return {}
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=_cors_headers(request),
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    # Surface the real error text so it is visible in the browser.
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Server error: {type(exc).__name__}: {str(exc)}"},
+        headers=_cors_headers(request),
+    )
+
+
 # ── AUTH HELPERS ──────────────────────────────────────────────
 
 def get_admin_user(authorization: str = Header(...)):
@@ -52,7 +87,11 @@ def get_admin_user(authorization: str = Header(...)):
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired session.")
 
-    profile = supabase.table("profiles").select("role").eq("id", user.id).single().execute()
+    try:
+        profile = supabase.table("profiles").select("role").eq("id", user.id).single().execute()
+    except Exception as e:
+        raise HTTPException(status_code=403, detail=f"Could not verify admin profile: {str(e)}")
+
     if not profile.data or profile.data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Access denied. Admin only.")
 
@@ -138,13 +177,22 @@ def create_student(body: CreateStudentRequest, _=Depends(get_admin_user)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to create user: {str(e)}")
 
+    if not result or not getattr(result, "user", None):
+        raise HTTPException(status_code=400, detail="User creation returned no user object.")
+
     user_id = result.user.id
 
     update_data = {"full_name": body.full_name, "role": "student", "status": "active"}
     if body.expiry_date:
         update_data["expiry_date"] = body.expiry_date
 
-    supabase.table("profiles").upsert({"id": user_id, **update_data}).execute()
+    try:
+        supabase.table("profiles").upsert({"id": user_id, **update_data}).execute()
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"User was created in auth but profile update failed: {str(e)}"
+        )
 
     return {
         "success": True,
