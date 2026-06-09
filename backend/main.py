@@ -72,8 +72,8 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 # ── AUTH HELPERS ──────────────────────────────────────────────
 
-def get_admin_user(authorization: str = Header(...)):
-    """Verify the request comes from an authenticated admin."""
+def _verify_user(authorization: str, allowed_roles: tuple):
+    """Verify the Bearer token and that the user's role is in allowed_roles."""
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid authorization header.")
 
@@ -90,12 +90,23 @@ def get_admin_user(authorization: str = Header(...)):
     try:
         profile = supabase.table("profiles").select("role").eq("id", user.id).single().execute()
     except Exception as e:
-        raise HTTPException(status_code=403, detail=f"Could not verify admin profile: {str(e)}")
+        raise HTTPException(status_code=403, detail=f"Could not verify profile: {str(e)}")
 
-    if not profile.data or profile.data.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Access denied. Admin only.")
+    role = (profile.data or {}).get("role")
+    if role not in allowed_roles:
+        raise HTTPException(status_code=403, detail="Access denied.")
 
     return user
+
+
+def get_admin_user(authorization: str = Header(...)):
+    """Admin OR superadmin — content management and shared operations."""
+    return _verify_user(authorization, ("admin", "superadmin"))
+
+
+def get_superadmin_user(authorization: str = Header(...)):
+    """Superadmin only — student management and admin/superadmin management."""
+    return _verify_user(authorization, ("superadmin",))
 
 
 # ── PASSWORD / USERNAME GENERATORS ───────────────────────────
@@ -132,6 +143,12 @@ class CreateStudentRequest(BaseModel):
     expiry_date: Optional[str] = None
 
 
+class CreateAdminRequest(BaseModel):
+    full_name: str
+    email: str
+    role: Optional[str] = "admin"   # 'admin' (teacher) or 'superadmin'
+
+
 class BulkStudentEntry(BaseModel):
     full_name: str
     email: str
@@ -160,7 +177,7 @@ def health_check():
 
 
 @app.post("/admin/create-student")
-def create_student(body: CreateStudentRequest, _=Depends(get_admin_user)):
+def create_student(body: CreateStudentRequest, _=Depends(get_superadmin_user)):
     """Create a single student account."""
     password = body.password or generate_password()
 
@@ -204,7 +221,7 @@ def create_student(body: CreateStudentRequest, _=Depends(get_admin_user)):
 
 
 @app.post("/admin/bulk-create-students")
-def bulk_create_students(body: BulkCreateRequest, _=Depends(get_admin_user)):
+def bulk_create_students(body: BulkCreateRequest, _=Depends(get_superadmin_user)):
     """Bulk create student accounts from a list."""
     created = []
     failed = []
@@ -263,7 +280,7 @@ def bulk_create_students(body: BulkCreateRequest, _=Depends(get_admin_user)):
 
 
 @app.patch("/admin/update-student/{user_id}")
-def update_student(user_id: str, body: UpdateStudentRequest, _=Depends(get_admin_user)):
+def update_student(user_id: str, body: UpdateStudentRequest, _=Depends(get_superadmin_user)):
     """Update student profile — name, status, expiry date."""
     update_data = {}
     if body.full_name is not None:
@@ -283,7 +300,7 @@ def update_student(user_id: str, body: UpdateStudentRequest, _=Depends(get_admin
 
 
 @app.delete("/admin/delete-student/{user_id}")
-def delete_student(user_id: str, _=Depends(get_admin_user)):
+def delete_student(user_id: str, _=Depends(get_superadmin_user)):
     """Permanently delete a student account."""
     try:
         supabase.auth.admin.delete_user(user_id)
@@ -293,7 +310,7 @@ def delete_student(user_id: str, _=Depends(get_admin_user)):
 
 
 @app.post("/admin/reset-password/{user_id}")
-def reset_password(user_id: str, _=Depends(get_admin_user)):
+def reset_password(user_id: str, _=Depends(get_superadmin_user)):
     """Generate a new password for a student and return it to the admin."""
     new_password = generate_password()
     try:
@@ -301,6 +318,55 @@ def reset_password(user_id: str, _=Depends(get_admin_user)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to reset password: {str(e)}")
     return {"success": True, "new_password": new_password}
+
+
+# ── ADMIN / SUPERADMIN MANAGEMENT (superadmin only) ──────────
+
+@app.post("/admin/create-admin")
+def create_admin(body: CreateAdminRequest, _=Depends(get_superadmin_user)):
+    """Create an admin (teacher) or superadmin account. Superadmin only."""
+    role = body.role if body.role in ("admin", "superadmin") else "admin"
+    password = generate_password()
+
+    try:
+        result = supabase.auth.admin.create_user({
+            "email": body.email,
+            "password": password,
+            "email_confirm": True,
+            "user_metadata": {"full_name": body.full_name, "role": role}
+        })
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to create user: {str(e)}")
+
+    if not result or not getattr(result, "user", None):
+        raise HTTPException(status_code=400, detail="User creation returned no user object.")
+
+    user_id = result.user.id
+    try:
+        supabase.table("profiles").upsert({
+            "id": user_id, "full_name": body.full_name, "role": role, "status": "active"
+        }).execute()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"User created but profile update failed: {str(e)}")
+
+    return {
+        "success": True,
+        "user_id": user_id,
+        "email": body.email,
+        "password": password,
+        "full_name": body.full_name,
+        "role": role
+    }
+
+
+@app.delete("/admin/delete-admin/{user_id}")
+def delete_admin(user_id: str, _=Depends(get_superadmin_user)):
+    """Delete an admin/superadmin account. Superadmin only."""
+    try:
+        supabase.auth.admin.delete_user(user_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to delete user: {str(e)}")
+    return {"success": True, "deleted_user_id": user_id}
 
 
 @app.post("/materials/signed-url")
