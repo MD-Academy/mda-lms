@@ -134,6 +134,22 @@ body {
     padding-left: 32px;
 }
 
+.student-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 7px 18px;
+    /* Our crimson red blending into the logo gold */
+    background: linear-gradient(135deg, #b91c5c 0%, #d4af37 100%);
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 800;
+    color: #ffffff;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    width: fit-content;
+    box-shadow: 0 4px 14px rgba(185,28,92,0.3);
+}
+
 .hero-title {
     font-size: 38px;
     font-weight: 800;
