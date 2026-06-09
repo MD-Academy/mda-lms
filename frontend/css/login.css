@@ -140,10 +140,10 @@ body {
     padding: 7px 18px;
     border: 1.5px solid transparent;
     border-radius: 20px;
-    /* Translucent crimson→gold fill (padding-box) with a solid crimson→gold gradient border (border-box) */
+    /* Translucent blue→crimson fill (padding-box) with a solid blue→crimson gradient border (border-box) */
     background:
-        linear-gradient(135deg, rgba(185,28,92,0.22) 0%, rgba(212,175,55,0.20) 100%) padding-box,
-        linear-gradient(135deg, #b91c5c 0%, #d4af37 100%) border-box;
+        linear-gradient(135deg, rgba(26,74,138,0.30) 0%, rgba(185,28,92,0.30) 100%) padding-box,
+        linear-gradient(135deg, #1a4a8a 0%, #b91c5c 100%) border-box;
     font-size: 12px;
     font-weight: 800;
     color: #ffffff;
