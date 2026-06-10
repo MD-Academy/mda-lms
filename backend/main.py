@@ -431,6 +431,14 @@ def get_signed_url_student(body: SignedUrlRequest, authorization: str = Header(.
         bk = supabase.table("booklets").select("is_visible").eq("storage_path", body.storage_path).limit(1).execute()
         if bk.data and bk.data[0].get("is_visible"):
             allowed = True  # booklets are available to all active students
+        else:
+            exm = supabase.table("exams").select("id, is_visible").eq("storage_path", body.storage_path).limit(1).execute()
+            if exm.data and exm.data[0].get("is_visible"):
+                try:
+                    _verify_exam_access(user.id, exm.data[0]["id"])
+                    allowed = True
+                except HTTPException:
+                    allowed = False
 
     if not allowed:
         raise HTTPException(status_code=403, detail="You don't have access to this file.")

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="assets/images/favicon.png?v=1">
+    <title>Medical Doctor Academy — Exam</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/student.css">
+</head>
+<body>
+    <div class="layout" id="app-layout"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/layout.js"></script>
+    <script>
+        function esc(s){ return s ? String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) : ''; }
+
+        let EXAM = null, QUESTIONS = [], answers = {}, timer = null, submitting = false;
+
+        (async () => {
+            const auth = await requireStudent();
+            if (!auth) return;
+            const examId = new URLSearchParams(location.search).get('id');
+            if (!examId) { location.href = 'exams.html'; return; }
+            renderLayout('exams', 'Exam', 'Answer all questions and submit', auth.profile);
+            const content = document.getElementById('page-content');
+            content.innerHTML = `<div class="loader">Loading exam…</div>`;
+
+            let data;
+            try {
+                data = await apiRequest('POST', '/student/exam-questions', { exam_id: examId });
+            } catch (err) {
+                content.innerHTML = `<div class="empty-state"><h3>Couldn't load this exam</h3><p>${esc(err.message)}</p><a class="btn btn-ghost" href="exams.html" style="margin-top:12px;">Back to Exams</a></div>`;
+                return;
+            }
+            EXAM = data.exam; QUESTIONS = data.questions || [];
+            if (QUESTIONS.length === 0) {
+                content.innerHTML = `<div class="empty-state"><h3>${esc(EXAM.title)}</h3><p>This exam has no questions yet.</p><a class="btn btn-ghost" href="exams.html" style="margin-top:12px;">Back to Exams</a></div>`;
+                return;
+            }
+            renderExam();
+        })();
+
+        function renderExam() {
+            const content = document.getElementById('page-content');
+            content.innerHTML = `
+                <div class="exam-meta">
+                    ${EXAM.time_limit_minutes ? `<span class="timer" id="timer"></span>` : ''}
+                    <h2>${esc(EXAM.title)}</h2>
+                    <p>${esc(EXAM.description) || ''} Pass mark: <strong>${EXAM.pass_threshold}%</strong> · ${QUESTIONS.length} questions</p>
+                </div>
+                <div id="questions">${QUESTIONS.map((q, i) => {
+                    const opts = Array.isArray(q.options_json) ? q.options_json : [];
+                    return `<div class="q-card" id="q-${q.id}">
+                        <div class="q-num">Question ${i+1} of ${QUESTIONS.length}</div>
+                        <div class="q-text">${esc(q.question_text)}</div>
+                        ${opts.map((o, oi) => `
+                            <label class="opt" onclick="pick('${q.id}', ${oi}, this)">
+                                <input type="radio" name="q-${q.id}" value="${oi}"> <span>${esc(o)}</span>
+                            </label>`).join('')}
+                    </div>`;
+                }).join('')}</div>
+                <div style="display:flex;gap:12px;align-items:center;margin-top:8px;">
+                    <button class="btn btn-primary" id="submit-btn" onclick="submitExam(false)">Submit Exam</button>
+                    <a class="btn btn-ghost" href="exams.html">Cancel</a>
+                </div>`;
+
+            if (EXAM.time_limit_minutes) startTimer(EXAM.time_limit_minutes * 60);
+        }
+
+        function pick(qid, oi, el) {
+            answers[qid] = oi;
+            const card = document.getElementById('q-' + qid);
+            card.querySelectorAll('.opt').forEach(o => o.classList.remove('sel'));
+            el.classList.add('sel');
+            el.querySelector('input').checked = true;
+        }
+
+        function startTimer(seconds) {
+            const el = document.getElementById('timer');
+            function tick() {
+                if (seconds <= 0) { clearInterval(timer); submitExam(true); return; }
+                const m = Math.floor(seconds / 60), s = seconds % 60;
+                el.textContent = `⏱ ${m}:${String(s).padStart(2,'0')}`;
+                seconds--;
+            }
+            tick(); timer = setInterval(tick, 1000);
+        }
+
+        async function submitExam(auto) {
+            if (submitting) return;
+            const unanswered = QUESTIONS.filter(q => answers[q.id] === undefined).length;
+            if (!auto && unanswered > 0) {
+                if (!confirm(`You have ${unanswered} unanswered question(s). Submit anyway?`)) return;
+            }
+            submitting = true;
+            if (timer) clearInterval(timer);
+            const btn = document.getElementById('submit-btn');
+            if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+            try {
+                const res = await apiRequest('POST', '/student/exam-submit', { exam_id: EXAM.id, answers });
+                showResult(res);
+            } catch (err) {
+                submitting = false;
+                if (btn) { btn.disabled = false; btn.textContent = 'Submit Exam'; }
+                alert('Could not submit: ' + err.message);
+            }
+        }
+
+        function showResult(res) {
+            const content = document.getElementById('page-content');
+            const pass = res.passed;
+            content.innerHTML = `
+                <div class="result-card">
+                    <div class="r-score" style="color:${pass ? 'var(--green)' : 'var(--red)'};">${res.score}%</div>
+                    <div class="r-badge ${pass ? 'pass' : 'fail'}">${pass ? '✓ Passed' : '✕ Not passed'}</div>
+                    <p style="color:var(--text-muted);">You answered ${res.correct} of ${res.total} correctly. Pass mark was ${res.pass_threshold}%.</p>
+                    ${(!pass && res.wrong && res.wrong.length) ? `<div class="r-review"><strong>Questions to review:</strong> ${res.wrong.map(n => '#' + n).join(', ')}.<br><span style="color:var(--text-muted);">Go back over these topics and try again — you've got this. 💪</span></div>` : ''}
+                    <div style="margin-top:22px;display:flex;gap:10px;justify-content:center;">
+                        <a class="btn btn-ghost" href="exams.html">Back to Exams</a>
+                        ${!pass ? `<button class="btn btn-primary" onclick="location.reload()">Try Again</button>` : ''}
+                    </div>
+                </div>`;
+        }
+    </script>
+</body>
+</html>

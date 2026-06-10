@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="assets/images/favicon.png?v=1">
+    <title>Medical Doctor Academy — Exams</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/student.css">
+</head>
+<body>
+    <div class="layout" id="app-layout"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/layout.js"></script>
+    <script>
+        function esc(s){ return s ? String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) : ''; }
+
+        (async () => {
+            const auth = await requireStudent();
+            if (!auth) return;
+            renderLayout('exams', 'Exams & Quizzes', 'Practice exams assigned to your courses', auth.profile);
+            document.getElementById('page-content').innerHTML = `<div id="box"><div class="loader">Loading exams…</div></div>`;
+
+            const [exRes, atRes] = await Promise.all([
+                db.from('exams').select('id, title, description, type, pass_threshold, storage_path, is_visible').order('created_at', { ascending: false }),
+                db.from('exam_attempts').select('exam_id, score, passed')
+            ]);
+
+            const attempts = {};
+            (atRes.data || []).forEach(a => { attempts[a.exam_id] = a; });
+            const exams = (exRes.data || []).filter(e => e.is_visible);
+
+            const box = document.getElementById('box');
+            if (exams.length === 0) {
+                box.innerHTML = `<div class="empty-state"><h3>No exams yet</h3><p>Practice exams for your courses will appear here.</p></div>`;
+                return;
+            }
+            box.innerHTML = exams.map(e => {
+                const a = attempts[e.id];
+                let badge = '';
+                if (a && a.score != null) {
+                    badge = a.passed
+                        ? `<span class="badge-subject" style="background:#dcfce7;color:#15803d;">Passed · ${a.score}%</span>`
+                        : `<span class="badge-general" style="background:#fee2e2;color:#b91c1c;">Not passed · ${a.score}%</span>`;
+                }
+                const action = e.type === 'manual'
+                    ? `<button class="btn btn-primary" onclick="location.href='take-exam.html?id=${encodeURIComponent(e.id)}'">${a ? 'Retake' : 'Start'}</button>`
+                    : `<button class="btn btn-primary" onclick="location.href='viewer.html?path=${encodeURIComponent(e.storage_path||'')}&title=${encodeURIComponent(e.title)}'">Open Paper</button>`;
+                return `
+                    <div class="item-row">
+                        <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
+                        <div class="ir-body">
+                            <div class="ir-title">${esc(e.title)}</div>
+                            <div class="ir-sub">${e.type === 'manual' ? 'Multiple-choice' : 'PDF paper'} · pass ${e.pass_threshold}% ${badge ? '· ' : ''}${badge}</div>
+                        </div>
+                        ${action}
+                    </div>`;
+            }).join('');
+        })();
+    </script>
+</body>
+</html>

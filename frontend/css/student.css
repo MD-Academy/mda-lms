@@ -173,6 +173,25 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .lock-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--text-muted); background: var(--bg); border: 1px solid var(--border); padding: 4px 10px; border-radius: 20px; }
 .lock-badge svg { width: 12px; height: 12px; }
 
+/* ── EXAM TAKING ── */
+.exam-meta { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; margin-bottom: 18px; }
+.exam-meta h2 { font-size: 19px; font-weight: 800; color: var(--navy-800); margin-bottom: 6px; }
+.exam-meta p { font-size: 14px; color: var(--text-muted); }
+.timer { float: right; font-weight: 800; color: var(--crimson); font-size: 16px; }
+.q-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; margin-bottom: 14px; }
+.q-card .q-num { font-size: 12px; font-weight: 700; color: var(--blue-600); }
+.q-card .q-text { font-size: 15px; font-weight: 600; color: var(--text); margin: 6px 0 14px; }
+.opt { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1.5px solid var(--border); border-radius: 10px; margin-bottom: 8px; cursor: pointer; transition: all 0.12s; }
+.opt:hover { border-color: var(--blue-400); background: #f8fbff; }
+.opt input { width: 18px; height: 18px; accent-color: var(--blue-500); }
+.opt.sel { border-color: var(--blue-500); background: #eff5ff; }
+.result-card { background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 36px; text-align: center; max-width: 520px; margin: 0 auto; }
+.result-card .r-score { font-size: 52px; font-weight: 800; line-height: 1; }
+.result-card .r-badge { display: inline-flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 800; padding: 10px 22px; border-radius: 30px; margin: 16px 0; }
+.result-card .r-badge.pass { background: #dcfce7; color: #15803d; }
+.result-card .r-badge.fail { background: #fee2e2; color: #b91c1c; }
+.result-card .r-review { text-align: left; background: var(--bg); border-radius: 12px; padding: 14px 18px; margin-top: 16px; font-size: 14px; color: var(--text); }
+
 /* ── VIDEO MODAL ── */
 .vid-overlay { position: fixed; inset: 0; background: rgba(2,13,31,0.85); display: none; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
 .vid-overlay.open { display: flex; }
