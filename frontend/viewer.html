@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="assets/images/favicon.png?v=1">
+    <title>Medical Doctor Academy — Reader</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Inter', sans-serif; background: #44464b; -webkit-user-select: none; user-select: none; }
+        .reader-top {
+            position: sticky; top: 0; z-index: 30; display: flex; align-items: center; justify-content: space-between;
+            background: #0a1e3d; color: #fff; padding: 12px 20px;
+        }
+        .reader-top .rt-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
+        .reader-top a { color: #fff; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; }
+        .reader-top .rt-title { font-size: 14px; color: rgba(255,255,255,0.85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .reader-top .rt-note { font-size: 12px; color: var(--gold, #d4af37); font-weight: 600; }
+        #pdf-container { padding: 24px 12px 60px; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+        #pdf-container canvas { max-width: 100%; box-shadow: 0 4px 20px rgba(0,0,0,0.4); background: #fff; }
+        #status { color: #e5e7eb; text-align: center; padding: 60px 20px; font-size: 15px; }
+        /* Tiled watermark over the whole reading area */
+        #watermark { position: fixed; inset: 48px 0 0 0; pointer-events: none; z-index: 20; background-repeat: repeat; opacity: 1; }
+    </style>
+</head>
+<body oncontextmenu="return false;">
+    <div class="reader-top">
+        <div class="rt-left">
+            <a href="#" id="back-link">← Back</a>
+            <span class="rt-title" id="rt-title">Loading…</span>
+        </div>
+        <span class="rt-note">Read-only</span>
+    </div>
+    <div id="watermark"></div>
+    <div id="pdf-container"><div id="status">Loading material…</div></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+        document.getElementById('back-link').addEventListener('click', e => { e.preventDefault(); history.back(); });
+
+        (async () => {
+            const auth = await requireStudent();
+            if (!auth) return;
+
+            const params = new URLSearchParams(location.search);
+            const path = params.get('path');
+            const title = params.get('title') || 'Material';
+            document.getElementById('rt-title').textContent = title;
+            if (!path) { document.getElementById('status').textContent = 'No file specified.'; return; }
+
+            // Watermark with the student's identity (traceable, discourages leaking).
+            const ident = `${auth.profile.full_name || 'Student'} · ${auth.session.user.email || ''}`;
+            const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='340' height='210'><text x='10' y='110' transform='rotate(-28 170 105)' fill='rgba(20,30,60,0.10)' font-size='15' font-family='sans-serif'>${ident.replace(/[<>&]/g,'')}</text></svg>`;
+            document.getElementById('watermark').style.backgroundImage = `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
+
+            // Get a short-lived signed URL from the backend (verifies access + visibility).
+            let signedUrl;
+            try {
+                const res = await apiRequest('POST', '/materials/signed-url/student', { storage_path: path });
+                signedUrl = res.signed_url;
+            } catch (err) {
+                document.getElementById('status').textContent = `Could not open this material: ${err.message}`;
+                return;
+            }
+
+            // Render with PDF.js into canvases (no download link, no native PDF toolbar).
+            try {
+                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+                const pdf = await pdfjsLib.getDocument(signedUrl).promise;
+                const container = document.getElementById('pdf-container');
+                container.innerHTML = '';
+                const width = Math.min(900, window.innerWidth - 24);
+                for (let n = 1; n <= pdf.numPages; n++) {
+                    const page = await pdf.getPage(n);
+                    const base = page.getViewport({ scale: 1 });
+                    const scale = width / base.width;
+                    const viewport = page.getViewport({ scale: scale * (window.devicePixelRatio || 1) });
+                    const canvas = document.createElement('canvas');
+                    canvas.width = viewport.width; canvas.height = viewport.height;
+                    canvas.style.width = (viewport.width / (window.devicePixelRatio || 1)) + 'px';
+                    container.appendChild(canvas);
+                    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+                }
+            } catch (err) {
+                document.getElementById('pdf-container').innerHTML = `<div id="status">This file couldn't be displayed in the reader.<br>(${(err && err.message) || 'error'})</div>`;
+            }
+        })();
+    </script>
+</body>
+</html>

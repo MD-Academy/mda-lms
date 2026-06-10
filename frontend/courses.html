@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="assets/images/favicon.png?v=1">
+    <title>Medical Doctor Academy — My Courses</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/student.css">
+</head>
+<body>
+    <div class="layout" id="app-layout"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/layout.js"></script>
+    <script>
+        function esc(s){ return s ? String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) : ''; }
+        (async () => {
+            const auth = await requireStudent();
+            if (!auth) return;
+            renderLayout('courses', 'My Courses', 'Your enrolled courses', auth.profile);
+            document.getElementById('page-content').innerHTML = `<div id="box"><div class="loader">Loading your courses…</div></div>`;
+
+            const [cRes, csRes] = await Promise.all([
+                db.from('courses').select('id, name, description').order('name', { ascending: true }),
+                db.from('course_subjects').select('course_id, room_id')
+            ]);
+            const courses = cRes.data || [];
+            const subjCount = {};
+            (csRes.data || []).forEach(r => { subjCount[r.course_id] = (subjCount[r.course_id] || 0) + 1; });
+
+            const box = document.getElementById('box');
+            if (courses.length === 0) {
+                box.innerHTML = `<div class="empty-state"><h3>No active courses</h3><p>You're not enrolled in an active course yet. Please contact the office.</p></div>`;
+                return;
+            }
+            box.innerHTML = `<div class="card-grid">${courses.map(c => `
+                <div class="course-card" onclick="location.href='course.html?id=${encodeURIComponent(c.id)}'">
+                    <div class="cc-top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg></div>
+                    <div class="cc-body">
+                        <div class="cc-title">${esc(c.name)}</div>
+                        <div class="cc-sub">${esc(c.description) || 'Open to see your subjects and materials'}</div>
+                        <div class="cc-meta">${subjCount[c.id] || 0} subject${(subjCount[c.id]||0)===1?'':'s'} →</div>
+                    </div>
+                </div>`).join('')}</div>`;
+        })();
+    </script>
+</body>
+</html>

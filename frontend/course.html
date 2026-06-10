@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="assets/images/favicon.png?v=1">
+    <title>Medical Doctor Academy — Course</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/student.css">
+</head>
+<body>
+    <div class="layout" id="app-layout"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/layout.js"></script>
+    <script>
+        function esc(s){ return s ? String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) : ''; }
+        (async () => {
+            const auth = await requireStudent();
+            if (!auth) return;
+            const courseId = new URLSearchParams(location.search).get('id');
+            if (!courseId) { location.href = 'courses.html'; return; }
+
+            const { data: course } = await db.from('courses').select('id, name').eq('id', courseId).single();
+            if (!course) { location.href = 'courses.html'; return; }
+            renderLayout('courses', esc(course.name), 'Subjects in this course', auth.profile);
+
+            document.getElementById('page-content').innerHTML = `
+                <a class="btn btn-ghost" href="courses.html" style="margin-bottom:18px;">← All Courses</a>
+                <div id="box"><div class="loader">Loading subjects…</div></div>`;
+
+            const { data: cs } = await db.from('course_subjects').select('room_id').eq('course_id', courseId);
+            const roomIds = (cs || []).map(r => r.room_id);
+            let rooms = [];
+            if (roomIds.length) {
+                const { data } = await db.from('rooms').select('id, name, description').in('id', roomIds).order('order_index', { ascending: true });
+                rooms = data || [];
+            }
+
+            const box = document.getElementById('box');
+            if (rooms.length === 0) {
+                box.innerHTML = `<div class="empty-state"><h3>No subjects available</h3><p>Your teacher hasn't released subjects for this course yet.</p></div>`;
+                return;
+            }
+            box.innerHTML = `<div class="card-grid">${rooms.map(r => `
+                <div class="course-card" onclick="location.href='subject.html?id=${encodeURIComponent(r.id)}'">
+                    <div class="cc-top" style="background:linear-gradient(135deg,#0d2a52,#4a90d9);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></div>
+                    <div class="cc-body">
+                        <div class="cc-title">${esc(r.name)}</div>
+                        <div class="cc-sub">${esc(r.description) || 'Lessons, lectures & materials'}</div>
+                        <div class="cc-meta">Open subject →</div>
+                    </div>
+                </div>`).join('')}</div>`;
+        })();
+    </script>
+</body>
+</html>
