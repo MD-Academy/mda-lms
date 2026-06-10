@@ -404,9 +404,36 @@ def get_signed_url_student(body: SignedUrlRequest, authorization: str = Header(.
     if p["status"] == "suspended":
         raise HTTPException(status_code=403, detail="Your account has been suspended.")
     if p["expiry_date"]:
-        from datetime import date
         if date.fromisoformat(p["expiry_date"]) < date.today():
             raise HTTPException(status_code=403, detail="Your account has expired.")
+
+    # Verify the student is actually allowed to open THIS file (visible + enrolled),
+    # so they can't fetch arbitrary or hidden files by guessing a path.
+    today_iso = date.today().isoformat()
+    allowed = False
+
+    mat = supabase.table("materials").select("room_id, is_visible").eq("storage_path", body.storage_path).limit(1).execute()
+    if mat.data:
+        m = mat.data[0]
+        if m.get("is_visible"):
+            enr = supabase.table("course_enrollments").select("course_id").eq("student_id", user.id).execute()
+            course_ids = [r["course_id"] for r in (enr.data or [])]
+            if course_ids:
+                cs = supabase.table("course_subjects").select("course_id").eq("room_id", m["room_id"]).in_("course_id", course_ids).execute()
+                cand = [r["course_id"] for r in (cs.data or [])]
+                if cand:
+                    crs = supabase.table("courses").select("is_visible, expires_at").in_("id", cand).execute()
+                    for c in (crs.data or []):
+                        if c.get("is_visible") and (not c.get("expires_at") or c["expires_at"] >= today_iso):
+                            allowed = True
+                            break
+    else:
+        bk = supabase.table("booklets").select("is_visible").eq("storage_path", body.storage_path).limit(1).execute()
+        if bk.data and bk.data[0].get("is_visible"):
+            allowed = True  # booklets are available to all active students
+
+    if not allowed:
+        raise HTTPException(status_code=403, detail="You don't have access to this file.")
 
     try:
         result = supabase.storage.from_("materials").create_signed_url(
