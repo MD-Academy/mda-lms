@@ -127,6 +127,11 @@ loginForm.addEventListener('submit', async (e) => {
     }
 });
 
+// If a student was kicked out (suspended/expired) mid-session, explain why.
+if (new URLSearchParams(window.location.search).get('inactive')) {
+    showAlert('Your account is inactive. Please contact the administrator.', 'error');
+}
+
 // Redirect if already logged in
 (async () => {
     const { data: { session } } = await db.auth.getSession();

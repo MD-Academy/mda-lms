@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="assets/images/favicon.png?v=1">
+    <title>Medical Doctor Academy — Profile</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/student.css">
+</head>
+<body>
+    <div class="layout" id="app-layout"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/layout.js"></script>
+    <script>
+        function esc(s){ return s ? String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) : ''; }
+
+        (async () => {
+            const auth = await requireStudent();
+            if (!auth) return;
+            renderLayout('profile', 'My Profile', 'Your account details', auth.profile);
+
+            const email = auth.session.user.email || '—';
+            document.getElementById('page-content').innerHTML = `
+                <div style="max-width:520px;">
+                    <div class="panel" style="margin-bottom:22px;">
+                        <div class="form-field"><label>Full Name</label><input type="text" value="${esc(auth.profile.full_name||'')}" disabled></div>
+                        <div class="form-field" style="margin-bottom:0;"><label>Email</label><input type="text" value="${esc(email)}" disabled></div>
+                    </div>
+                    <div class="panel">
+                        <div class="section-title" style="margin-bottom:16px;">Change Password</div>
+                        <div class="alert" id="pw-alert" style="display:none;"></div>
+                        <form id="pw-form">
+                            <div class="form-field"><label>New Password</label><input type="password" id="pw1" placeholder="At least 8 characters" required></div>
+                            <div class="form-field"><label>Confirm New Password</label><input type="password" id="pw2" placeholder="Re-type the new password" required></div>
+                            <button type="submit" class="btn btn-primary" id="pw-btn">Update Password</button>
+                        </form>
+                    </div>
+                </div>
+            `;
+
+            const alertBox = document.getElementById('pw-alert');
+            function showAlert(msg, type){ alertBox.className = `alert ${type}`; alertBox.textContent = msg; alertBox.style.display='block'; }
+
+            document.getElementById('pw-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                alertBox.style.display = 'none';
+                const p1 = document.getElementById('pw1').value;
+                const p2 = document.getElementById('pw2').value;
+                const btn = document.getElementById('pw-btn');
+                if (p1.length < 8) { showAlert('Password must be at least 8 characters.', 'error'); return; }
+                if (p1 !== p2) { showAlert('The two passwords do not match.', 'error'); return; }
+                btn.disabled = true; btn.textContent = 'Updating…';
+                try {
+                    const { error } = await db.auth.updateUser({ password: p1 });
+                    if (error) throw new Error(error.message);
+                    document.getElementById('pw-form').reset();
+                    showAlert('Password updated successfully.', 'success');
+                } catch (err) {
+                    showAlert(err.message, 'error');
+                } finally {
+                    btn.disabled = false; btn.textContent = 'Update Password';
+                }
+            });
+        })();
+    </script>
+</body>
+</html>
