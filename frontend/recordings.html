@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="assets/images/favicon.png?v=1">
+    <title>Medical Doctor Academy — Recordings</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/student.css">
+</head>
+<body>
+    <div class="layout" id="app-layout"></div>
+
+    <div class="vid-overlay" id="vid-overlay">
+        <div class="vid-box">
+            <div class="vid-head">
+                <h3 id="vid-title">Recording</h3>
+                <button class="vid-close" onclick="closeVideo()" title="Close (Esc)">&times;</button>
+            </div>
+            <video id="vid-player" controls controlsList="nodownload" disablePictureInPicture oncontextmenu="return false;"></video>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/layout.js"></script>
+    <script>
+        function esc(s){ return s ? String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) : ''; }
+        function fmtDate(d){ return d ? new Date(d).toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short',year:'numeric'}) : ''; }
+        const LOCK = '<span class="lock-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Not released yet</span>';
+
+        function openVideo(url, title){ document.getElementById('vid-title').textContent = title||'Recording'; const p=document.getElementById('vid-player'); p.src=url; document.getElementById('vid-overlay').classList.add('open'); p.play().catch(()=>{}); }
+        function closeVideo(){ const p=document.getElementById('vid-player'); p.pause(); p.removeAttribute('src'); p.load(); document.getElementById('vid-overlay').classList.remove('open'); }
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeVideo(); });
+
+        (async () => {
+            const auth = await requireStudent();
+            if (!auth) return;
+            renderLayout('recordings', 'Zoom Recordings', 'Class recordings for your courses', auth.profile);
+            document.getElementById('page-content').innerHTML = `<div id="box"><div class="loader">Loading recordings…</div></div>`;
+
+            const { data, error } = await db.from('recordings')
+                .select('id, title, professor, recorded_date, aws_url, is_visible')
+                .eq('kind', 'zoom').order('recorded_date', { ascending: false });
+
+            const box = document.getElementById('box');
+            if (error) { box.innerHTML = `<div class="empty-state"><p>Could not load recordings.</p></div>`; return; }
+            const recs = data || [];
+            if (recs.length === 0) { box.innerHTML = `<div class="empty-state"><h3>No recordings yet</h3><p>Class recordings for your courses will appear here.</p></div>`; return; }
+
+            box.innerHTML = recs.map(r => `
+                <div class="item-row ${r.is_visible ? '' : 'locked'}">
+                    <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
+                    <div class="ir-body"><div class="ir-title">${esc(r.title)}</div><div class="ir-sub">${esc(r.professor)} · ${fmtDate(r.recorded_date)}</div></div>
+                    ${r.is_visible ? `<button class="btn btn-primary" onclick="openVideo('${esc(r.aws_url)}','${esc(r.title)}')">▶ Play</button>` : LOCK}
+                </div>`).join('');
+        })();
+    </script>
+</body>
+</html>
