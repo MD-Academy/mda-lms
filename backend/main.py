@@ -442,3 +442,106 @@ def get_signed_url_student(body: SignedUrlRequest, authorization: str = Header(.
         return {"success": True, "signed_url": result["signedURL"]}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to generate signed URL: {str(e)}")
+
+
+# ── STUDENT EXAM TAKING (server-side grading; answers never sent to client) ──
+
+class ExamQReq(BaseModel):
+    exam_id: str
+
+class ExamSubmitReq(BaseModel):
+    exam_id: str
+    answers: dict   # { question_id: selected_option_index }
+
+
+def _require_active_student(authorization: str):
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header.")
+    token = authorization.split(" ", 1)[1]
+    try:
+        user = supabase.auth.get_user(token).user
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid session.")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid session.")
+    p = supabase.table("profiles").select("role, status, expiry_date").eq("id", user.id).single().execute().data
+    if not p or p.get("role") != "student":
+        raise HTTPException(status_code=403, detail="Students only.")
+    if p.get("status") == "suspended":
+        raise HTTPException(status_code=403, detail="Your account has been suspended.")
+    if p.get("expiry_date") and date.fromisoformat(p["expiry_date"]) < date.today():
+        raise HTTPException(status_code=403, detail="Your account has expired.")
+    return user
+
+
+def _verify_exam_access(user_id: str, exam_id: str):
+    ex = supabase.table("exams").select("id, title, description, type, pass_threshold, time_limit_minutes, is_visible").eq("id", exam_id).limit(1).execute().data
+    if not ex or not ex[0].get("is_visible"):
+        raise HTTPException(status_code=403, detail="This exam isn't available.")
+    e = ex[0]
+    enr = supabase.table("course_enrollments").select("course_id").eq("student_id", user_id).execute().data
+    course_ids = [r["course_id"] for r in (enr or [])]
+    if not course_ids:
+        raise HTTPException(status_code=403, detail="You don't have access to this exam.")
+    ec = supabase.table("exam_courses").select("course_id").eq("exam_id", exam_id).in_("course_id", course_ids).execute().data
+    cand = [r["course_id"] for r in (ec or [])]
+    if not cand:
+        raise HTTPException(status_code=403, detail="You don't have access to this exam.")
+    today_iso = date.today().isoformat()
+    crs = supabase.table("courses").select("is_visible, expires_at").in_("id", cand).execute().data
+    if not any(c.get("is_visible") and (not c.get("expires_at") or c["expires_at"] >= today_iso) for c in (crs or [])):
+        raise HTTPException(status_code=403, detail="You don't have access to this exam.")
+    return e
+
+
+@app.post("/student/exam-questions")
+def student_exam_questions(body: ExamQReq, authorization: str = Header(...)):
+    user = _require_active_student(authorization)
+    e = _verify_exam_access(user.id, body.exam_id)
+    qs = supabase.table("exam_questions").select("id, question_text, options_json, order_index").eq("exam_id", body.exam_id).order("order_index").execute().data or []
+    prev = supabase.table("exam_attempts").select("score, passed").eq("exam_id", body.exam_id).eq("student_id", user.id).limit(1).execute().data
+    return {
+        "exam": {"id": e["id"], "title": e["title"], "description": e.get("description"),
+                 "pass_threshold": e["pass_threshold"], "time_limit_minutes": e.get("time_limit_minutes")},
+        "questions": qs,
+        "previous": prev[0] if prev else None
+    }
+
+
+@app.post("/student/exam-submit")
+def student_exam_submit(body: ExamSubmitReq, authorization: str = Header(...)):
+    from datetime import datetime
+    user = _require_active_student(authorization)
+    e = _verify_exam_access(user.id, body.exam_id)
+    qs = supabase.table("exam_questions").select("id, correct_answer_index, order_index").eq("exam_id", body.exam_id).order("order_index").execute().data or []
+    if not qs:
+        raise HTTPException(status_code=400, detail="This exam has no questions yet.")
+
+    total = len(qs)
+    correct = 0
+    wrong = []
+    for i, q in enumerate(qs, start=1):
+        ans = body.answers.get(q["id"])
+        try:
+            if ans is not None and int(ans) == q["correct_answer_index"]:
+                correct += 1
+            else:
+                wrong.append(i)
+        except (ValueError, TypeError):
+            wrong.append(i)
+
+    score = round(correct / total * 100)
+    passed = score >= e["pass_threshold"]
+    row = {
+        "score": score, "passed": passed,
+        "answers_json": body.answers, "wrong_questions": wrong,
+        "completed_at": datetime.utcnow().isoformat()
+    }
+    existing = supabase.table("exam_attempts").select("id").eq("exam_id", body.exam_id).eq("student_id", user.id).limit(1).execute().data
+    if existing:
+        supabase.table("exam_attempts").update(row).eq("id", existing[0]["id"]).execute()
+    else:
+        supabase.table("exam_attempts").insert({**row, "exam_id": body.exam_id, "student_id": user.id}).execute()
+
+    return {"score": score, "passed": passed, "total": total, "correct": correct,
+            "wrong": wrong, "pass_threshold": e["pass_threshold"]}
