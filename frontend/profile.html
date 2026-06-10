@@ -8,6 +8,11 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/student.css">
+    <style>
+        .avatar-big { width: 84px; height: 84px; border-radius: 50%; overflow: hidden; flex-shrink: 0;
+            background: linear-gradient(135deg, var(--navy-800), var(--blue-500)); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; font-size: 28px; }
+        .avatar-big img { width: 100%; height: 100%; object-fit: cover; }
+    </style>
 </head>
 <body>
     <div class="layout" id="app-layout"></div>
@@ -18,15 +23,28 @@
     <script src="js/layout.js"></script>
     <script>
         function esc(s){ return s ? String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) : ''; }
+        const ALLOWED_IMG = ['png','jpg','jpeg','webp','gif'];
+        const AVATAR_MAX = 500 * 1024;
+        let AUTH = null;
 
         (async () => {
             const auth = await requireStudent();
             if (!auth) return;
+            AUTH = auth;
             renderLayout('profile', 'My Profile', 'Your account details', auth.profile);
 
             const email = auth.session.user.email || '—';
+            const initials = (auth.profile.full_name || 'S').trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase();
             document.getElementById('page-content').innerHTML = `
-                <div style="max-width:520px;">
+                <div style="max-width:560px;">
+                    <div class="panel" style="margin-bottom:22px; display:flex; align-items:center; gap:18px;">
+                        <div class="avatar-big" id="avatar-big">${auth.profile.avatar_url ? `<img src="${esc(auth.profile.avatar_url)}" alt="">` : initials}</div>
+                        <div>
+                            <button class="btn btn-primary" id="avatar-btn">Upload Photo</button>
+                            <input type="file" id="avatar-input" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none">
+                            <div class="hint" id="avatar-msg" style="margin-top:8px;">PNG, JPG, WEBP or GIF — up to 500&nbsp;KB.</div>
+                        </div>
+                    </div>
                     <div class="panel" style="margin-bottom:22px;">
                         <div class="form-field"><label>Full Name</label><input type="text" value="${esc(auth.profile.full_name||'')}" disabled></div>
                         <div class="form-field" style="margin-bottom:0;"><label>Email</label><input type="text" value="${esc(email)}" disabled></div>
@@ -40,17 +58,40 @@
                             <button type="submit" class="btn btn-primary" id="pw-btn">Update Password</button>
                         </form>
                     </div>
-                </div>
-            `;
+                </div>`;
 
+            // Avatar upload
+            const msg = document.getElementById('avatar-msg');
+            function showMsg(t, err){ msg.textContent = t; msg.style.color = err ? 'var(--red)' : 'var(--green)'; }
+            document.getElementById('avatar-btn').onclick = () => document.getElementById('avatar-input').click();
+            document.getElementById('avatar-input').onchange = async (e) => {
+                const file = e.target.files[0]; e.target.value = '';
+                if (!file) return;
+                const ext = (file.name.split('.').pop() || '').toLowerCase();
+                if (!file.type.startsWith('image/') || !ALLOWED_IMG.includes(ext)) { showMsg('Please choose an image (PNG, JPG, WEBP or GIF).', true); return; }
+                if (file.size > AVATAR_MAX) { showMsg(`Image too large (${(file.size/1024).toFixed(0)} KB). Max 500 KB.`, true); return; }
+                showMsg('Uploading…', false);
+                try {
+                    const uid = AUTH.session.user.id;
+                    const path = `${uid}/avatar.${ext}`;
+                    const up = await db.storage.from('avatars').upload(path, file, { contentType: file.type, upsert: true });
+                    if (up.error) throw new Error(up.error.message);
+                    const { data: pub } = db.storage.from('avatars').getPublicUrl(path);
+                    const url = `${pub.publicUrl}?t=${Date.now()}`;
+                    const upd = await db.from('profiles').update({ avatar_url: url }).eq('id', uid);
+                    if (upd.error) throw new Error(upd.error.message);
+                    document.getElementById('avatar-big').innerHTML = `<img src="${esc(url)}" alt="">`;
+                    showMsg('Photo updated!', false);
+                } catch (err) { showMsg(err.message, true); }
+            };
+
+            // Password change
             const alertBox = document.getElementById('pw-alert');
-            function showAlert(msg, type){ alertBox.className = `alert ${type}`; alertBox.textContent = msg; alertBox.style.display='block'; }
-
+            function showAlert(m,t){ alertBox.className = `alert ${t}`; alertBox.textContent = m; alertBox.style.display='block'; }
             document.getElementById('pw-form').addEventListener('submit', async (e) => {
                 e.preventDefault();
                 alertBox.style.display = 'none';
-                const p1 = document.getElementById('pw1').value;
-                const p2 = document.getElementById('pw2').value;
+                const p1 = document.getElementById('pw1').value, p2 = document.getElementById('pw2').value;
                 const btn = document.getElementById('pw-btn');
                 if (p1.length < 8) { showAlert('Password must be at least 8 characters.', 'error'); return; }
                 if (p1 !== p2) { showAlert('The two passwords do not match.', 'error'); return; }
@@ -60,11 +101,8 @@
                     if (error) throw new Error(error.message);
                     document.getElementById('pw-form').reset();
                     showAlert('Password updated successfully.', 'success');
-                } catch (err) {
-                    showAlert(err.message, 'error');
-                } finally {
-                    btn.disabled = false; btn.textContent = 'Update Password';
-                }
+                } catch (err) { showAlert(err.message, 'error'); }
+                finally { btn.disabled = false; btn.textContent = 'Update Password'; }
             });
         })();
     </script>

@@ -26,7 +26,7 @@
 
             const { data: course } = await db.from('courses').select('id, name').eq('id', courseId).single();
             if (!course) { location.href = 'courses.html'; return; }
-            renderLayout('courses', esc(course.name), 'Subjects in this course', auth.profile);
+            renderLayout('courses', course.name, 'Subjects in this course', auth.profile);
 
             document.getElementById('page-content').innerHTML = `
                 <a class="btn btn-ghost" href="courses.html" style="margin-bottom:18px;">← All Courses</a>
@@ -36,8 +36,8 @@
             const roomIds = (cs || []).map(r => r.room_id);
             let rooms = [];
             if (roomIds.length) {
-                const { data } = await db.from('rooms').select('id, name, description').in('id', roomIds).order('order_index', { ascending: true });
-                rooms = data || [];
+                const { data } = await db.from('rooms').select('id, name, description, is_visible').in('id', roomIds).order('order_index', { ascending: true });
+                rooms = (data || []).filter(r => r.is_visible);  // hide subjects the teacher hid
             }
 
             const box = document.getElementById('box');

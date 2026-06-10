@@ -56,9 +56,9 @@
             const roomId = new URLSearchParams(location.search).get('id');
             if (!roomId) { location.href = 'courses.html'; return; }
 
-            const { data: room } = await db.from('rooms').select('id, name, description').eq('id', roomId).single();
-            if (!room) { location.href = 'courses.html'; return; }
-            renderLayout('courses', esc(room.name), 'Lessons, lectures & materials', auth.profile);
+            const { data: room } = await db.from('rooms').select('id, name, description, is_visible').eq('id', roomId).single();
+            if (!room || !room.is_visible) { location.href = 'courses.html'; return; }
+            renderLayout('courses', room.name, 'Lessons, lectures & materials', auth.profile);
 
             document.getElementById('page-content').innerHTML = `
                 <a class="btn btn-ghost" onclick="history.back()" style="margin-bottom:18px;cursor:pointer;">← Back</a>
