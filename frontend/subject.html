@@ -49,6 +49,9 @@
         function openMaterial(path, title) {
             location.href = `viewer.html?path=${encodeURIComponent(path)}&title=${encodeURIComponent(title || 'Material')}`;
         }
+        function openExternal(url) {
+            if (/^https?:\/\//i.test(url)) window.open(url, '_blank', 'noopener');
+        }
 
         (async () => {
             const auth = await requireStudent();
@@ -72,7 +75,7 @@
             const [lRes, recRes, mRes] = await Promise.all([
                 db.from('lessons').select('id, title, description, order_index, is_visible').eq('room_id', roomId).order('order_index', { ascending: true }),
                 db.from('recordings').select('id, title, professor, recorded_date, aws_url, is_visible, kind').eq('room_id', roomId).eq('kind', 'lecture').order('recorded_date', { ascending: false }),
-                db.from('materials').select('id, title, type, storage_path, category, is_visible, created_at').eq('room_id', roomId).order('created_at', { ascending: false })
+                db.from('materials').select('id, title, type, storage_path, external_url, category, is_visible, created_at').eq('room_id', roomId).order('created_at', { ascending: false })
             ]);
 
             // Lessons (informational)
@@ -106,7 +109,11 @@
                     <div class="item-row ${m.is_visible ? '' : 'locked'}">
                         <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
                         <div class="ir-body"><div class="ir-title">${esc(m.title)}</div><div class="ir-sub">${esc((m.type||'file').toUpperCase())}</div></div>
-                        ${m.is_visible ? `<button class="btn btn-primary js-read" data-path="${esc(m.storage_path)}" data-title="${esc(m.title)}">Read</button>` : LOCK}
+                        ${m.is_visible
+                            ? (m.external_url
+                                ? `<button class="btn btn-primary js-extlink" data-url="${esc(m.external_url)}">Open ↗</button>`
+                                : `<button class="btn btn-primary js-read" data-path="${esc(m.storage_path)}" data-title="${esc(m.title)}">Read</button>`)
+                            : LOCK}
                     </div>`).join('');
             document.getElementById('materials-box').innerHTML = matHtml(mats);
             document.getElementById('notes-box').innerHTML = matHtml(notes);
@@ -114,6 +121,8 @@
             document.getElementById('page-content').addEventListener('click', e => {
                 const play = e.target.closest('.js-play');
                 if (play) { openVideo(play.dataset.url, play.dataset.title); return; }
+                const ext = e.target.closest('.js-extlink');
+                if (ext) { openExternal(ext.dataset.url); return; }
                 const read = e.target.closest('.js-read');
                 if (read) openMaterial(read.dataset.path, read.dataset.title);
             });
