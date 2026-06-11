@@ -20,6 +20,7 @@
         function esc(s){ return s ? String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) : ''; }
         const LOCK = '<span class="lock-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Not released yet</span>';
         function openBooklet(path, title){ location.href = `viewer.html?path=${encodeURIComponent(path)}&title=${encodeURIComponent(title||'Booklet')}`; }
+        function openExternal(url){ if (/^https?:\/\//i.test(url)) window.open(url, '_blank', 'noopener'); }
 
         (async () => {
             const auth = await requireStudent();
@@ -28,7 +29,7 @@
             document.getElementById('page-content').innerHTML = `<div id="box"><div class="loader">Loading booklets…</div></div>`;
 
             const { data, error } = await db.from('booklets')
-                .select('id, title, type, storage_path, is_visible, created_at')
+                .select('id, title, type, storage_path, external_url, is_visible, created_at')
                 .order('created_at', { ascending: false });
 
             const box = document.getElementById('box');
@@ -40,10 +41,16 @@
                 <div class="item-row ${b.is_visible ? '' : 'locked'}">
                     <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></div>
                     <div class="ir-body"><div class="ir-title">${esc(b.title)}</div><div class="ir-sub">${esc((b.type||'file').toUpperCase())}</div></div>
-                    ${b.is_visible ? `<button class="btn btn-primary js-read" data-path="${esc(b.storage_path)}" data-title="${esc(b.title)}">Read</button>` : LOCK}
+                    ${b.is_visible
+                        ? (b.external_url
+                            ? `<button class="btn btn-primary js-extlink" data-url="${esc(b.external_url)}">Open ↗</button>`
+                            : `<button class="btn btn-primary js-read" data-path="${esc(b.storage_path)}" data-title="${esc(b.title)}">Read</button>`)
+                        : LOCK}
                 </div>`).join('');
 
             box.addEventListener('click', e => {
+                const ext = e.target.closest('.js-extlink');
+                if (ext) { openExternal(ext.dataset.url); return; }
                 const b = e.target.closest('.js-read');
                 if (b) openBooklet(b.dataset.path, b.dataset.title);
             });
