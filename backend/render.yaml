@@ -20,6 +20,6 @@ services:
       - key: STUDENT_URL
         value: https://students.medicaldoctor-studies.com
       - key: LOGO_URL
-        value: https://students.medicaldoctor-studies.com/assets/images/mda-logo.png
+        value: https://students.medicaldoctor-studies.com/assets/images/favicon.png
       - key: CRON_SECRET
         sync: false
