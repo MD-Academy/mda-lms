@@ -51,7 +51,13 @@ function renderLayout(activeId, pageTitle, pageSub, profile) {
                         <strong>${_esc(profile.full_name || 'Student')}</strong>
                         <span>Student</span>
                     </div>
-                    <div class="avatar">${profile.avatar_url ? `<img src="${_esc(profile.avatar_url)}" alt="">` : initials}</div>
+                    <button class="avatar avatar-btn" id="avatar-btn" title="Upload a photo">
+                        <span class="avatar-inner" id="avatar-inner">${profile.avatar_url ? `<img src="${_esc(profile.avatar_url)}" alt="">` : initials}</span>
+                        <span class="avatar-edit">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                        </span>
+                    </button>
+                    <input type="file" id="avatar-input" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none">
                 </div>
             </header>
             <div class="content" id="page-content"></div>
@@ -59,4 +65,59 @@ function renderLayout(activeId, pageTitle, pageSub, profile) {
     `;
 
     document.getElementById('logout-btn').addEventListener('click', signOut);
+    _setupAvatarUpload();
+}
+
+// ── AVATAR / PROFILE PHOTO UPLOAD (topbar) ──
+const AVATAR_BUCKET = 'avatars';
+const AVATAR_MAX_BYTES = 500 * 1024; // 500 KB
+const AVATAR_ALLOWED = ['png', 'jpg', 'jpeg', 'webp', 'gif'];
+
+function _setupAvatarUpload() {
+    const btn = document.getElementById('avatar-btn');
+    const input = document.getElementById('avatar-input');
+    if (!btn || !input) return;
+
+    btn.addEventListener('click', () => input.click());
+    input.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        input.value = '';
+        if (!file) return;
+
+        const ext = (file.name.split('.').pop() || '').toLowerCase();
+        if (!file.type.startsWith('image/') || !AVATAR_ALLOWED.includes(ext)) {
+            alert('Invalid file. Please use an image: PNG, JPG, JPEG, WEBP or GIF.');
+            return;
+        }
+        if (file.size > AVATAR_MAX_BYTES) {
+            alert(`Image is too large (${(file.size / 1024).toFixed(0)} KB). Maximum is 500 KB.`);
+            return;
+        }
+
+        const inner = document.getElementById('avatar-inner');
+        const prev = inner.innerHTML;
+        inner.innerHTML = '…';
+        try {
+            const { data: { session } } = await db.auth.getSession();
+            if (!session) throw new Error('Not signed in.');
+            const userId = session.user.id;
+            const path = `${userId}/avatar.${ext}`;
+
+            const up = await db.storage.from(AVATAR_BUCKET).upload(path, file, { contentType: file.type, upsert: true });
+            if (up.error) throw new Error(up.error.message);
+
+            const { data: pub } = db.storage.from(AVATAR_BUCKET).getPublicUrl(path);
+            const url = `${pub.publicUrl}?t=${Date.now()}`;
+
+            const upd = await db.from('profiles').update({ avatar_url: url }).eq('id', userId);
+            if (upd.error) throw new Error(upd.error.message);
+
+            inner.innerHTML = `<img src="${_esc(url)}" alt="">`;
+            // Sync the big avatar on the profile page if it's on screen.
+            const big = document.getElementById('avatar-big'); if (big) big.innerHTML = `<img src="${_esc(url)}" alt="">`;
+        } catch (err) {
+            inner.innerHTML = prev;
+            alert(`Could not upload photo: ${err.message}`);
+        }
+    });
 }
