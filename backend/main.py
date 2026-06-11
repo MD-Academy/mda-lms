@@ -369,6 +369,26 @@ def delete_admin(user_id: str, _=Depends(get_superadmin_user)):
     return {"success": True, "deleted_user_id": user_id}
 
 
+@app.post("/admin/clear-mfa/{user_id}")
+def clear_mfa(user_id: str, _=Depends(get_superadmin_user)):
+    """Remove all 2FA factors for a user (lockout recovery). Superadmin only."""
+    try:
+        res = supabase.auth.admin.mfa.list_factors({"user_id": user_id})
+        factors = getattr(res, "factors", None)
+        if factors is None and isinstance(res, dict):
+            factors = res.get("factors", [])
+        factors = factors or []
+        removed = 0
+        for f in factors:
+            fid = getattr(f, "id", None) or (f.get("id") if isinstance(f, dict) else None)
+            if fid:
+                supabase.auth.admin.mfa.delete_factor({"user_id": user_id, "id": fid})
+                removed += 1
+        return {"success": True, "removed": removed}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not reset 2FA: {str(e)}")
+
+
 @app.post("/materials/signed-url")
 def get_signed_url(body: SignedUrlRequest, _=Depends(get_admin_user)):
     """Generate a short-lived signed URL for a private material file."""
