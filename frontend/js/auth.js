@@ -29,6 +29,11 @@ async function requireStudent() {
         window.location.href = 'index.html?inactive=1';
         return null;
     }
+    // Enforce 2FA: if enrolled but not completed this session, return to login to finish it.
+    try {
+        const { data: aal } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+        if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') { window.location.href = 'index.html'; return null; }
+    } catch (e) { /* ignore */ }
 
     _startStudentWatch(session.user.id);
     _startLoginTracking(session.user.id);

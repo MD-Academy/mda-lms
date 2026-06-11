@@ -21,6 +21,7 @@
     <script src="js/config.js"></script>
     <script src="js/auth.js"></script>
     <script src="js/layout.js"></script>
+    <script src="js/mfa.js"></script>
     <script>
         function esc(s){ return s ? String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) : ''; }
         const ALLOWED_IMG = ['png','jpg','jpeg','webp','gif'];
@@ -66,6 +67,10 @@
                             <div class="form-field"><label>Confirm New Password</label><input type="password" id="pw2" placeholder="Re-type the new password" required></div>
                             <button type="submit" class="btn btn-primary" id="pw-btn">Update Password</button>
                         </form>
+                    </div>
+                    <div class="panel" style="margin-top:22px;">
+                        <div class="section-title" style="margin-bottom:10px;">Two-Factor Authentication (2FA)</div>
+                        <div id="mfa-section"></div>
                     </div>
                 </div>`;
 
@@ -128,6 +133,8 @@
                 } catch (err) { showAlert(err.message, 'error'); }
                 finally { btn.disabled = false; btn.textContent = 'Update Password'; }
             });
+
+            renderMfaSection('mfa-section');
         })();
     </script>
 </body>
