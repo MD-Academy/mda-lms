@@ -27,6 +27,7 @@ EMAIL_FROM = os.environ.get("EMAIL_FROM", "Medical Doctor Academy <noreply@updat
 EMAIL_REPLY_TO = os.environ.get("EMAIL_REPLY_TO", "info@medicaldoctor-studies.com")
 STUDENT_URL = os.environ.get("STUDENT_URL", "https://students.medicaldoctor-studies.com").rstrip("/")
 LOGO_URL = os.environ.get("LOGO_URL", f"{STUDENT_URL}/assets/images/mda-logo.png")
+RESET_URL = f"{STUDENT_URL}/reset.html"
 OFFICE_EMAIL = "info@medicaldoctor-studies.com"
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -215,3 +216,52 @@ def schedule_email(full_name: str, topic: str, date_str: str, subject_name: str 
       {_button("View your calendar", STUDENT_URL + "/dashboard.html")}
       <p style="margin:0;font-size:12px;color:#94a3b8;">You're receiving this because schedule emails are on in your profile. You can turn them off under <strong>My Profile → Notifications</strong>.</p>"""
     return (f"New session scheduled: {topic}", _wrap("🗓️ New scheduled session", body))
+
+
+def _login_help(email: str) -> str:
+    """Shared footer block: username reminder + reset link (no password)."""
+    return (f'<p style="margin:14px 0 0;font-size:13px;line-height:1.6;color:#475569;">'
+            f'Your username is <strong>{_esc(email)}</strong>. '
+            f'Forgot your password? <a href="{_esc(RESET_URL)}" style="color:#2563eb;">Reset it here</a>.</p>')
+
+
+def inactivity_email(full_name: str, email: str, days: int):
+    """Returns (subject, html) for an inactivity nudge (7/15/30 days)."""
+    body = f"""\
+      {_greeting(full_name)}
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">
+        We noticed it's been about <strong>{days} days</strong> since you last signed in to the
+        Medical Doctor International Academy portal. Your lessons, recordings and materials are
+        waiting whenever you're ready to continue.</p>
+      {_button("Log in and continue", STUDENT_URL)}
+      {_login_help(email)}"""
+    return ("We've saved your spot — continue your studies", _wrap("We miss you 👋", body))
+
+
+def expiry_email(full_name: str, email: str, expiry_date: str, days_left: int):
+    """Returns (subject, html) for the one-time 'expires in ~7 days' reminder."""
+    when = "today" if days_left == 0 else (f"in {days_left} day" + ("" if days_left == 1 else "s"))
+    body = f"""\
+      {_greeting(full_name)}
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">
+        This is a friendly reminder that your access to the portal will expire <strong>{when}</strong>
+        (on <strong>{_esc(expiry_date)}</strong>).</p>
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">
+        If you've completed your studies, no action is needed. If you need to extend your access,
+        please contact the office at
+        <a href="mailto:{OFFICE_EMAIL}" style="color:#2563eb;">{OFFICE_EMAIL}</a>.</p>
+      {_button("Log in to the portal", STUDENT_URL)}
+      {_login_help(email)}"""
+    return ("Your portal access is expiring soon", _wrap("⏳ Access expiring soon", body))
+
+
+def reset_link_email(full_name: str, action_link: str):
+    """Returns (subject, html) for an on-demand password-reset link."""
+    body = f"""\
+      {_greeting(full_name)}
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">
+        We received a request to reset your password. Click the button below to choose a new one.
+        If you didn't request this, you can safely ignore this email — your password won't change.</p>
+      {_button("Reset my password", action_link)}
+      <p style="margin:0;font-size:13px;color:#94a3b8;">For your security, this link expires shortly. If it stops working, request a new one from the portal.</p>"""
+    return ("Reset your portal password", _wrap("🔑 Password reset", body))

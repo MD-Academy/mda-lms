@@ -1,8 +1,11 @@
 import os
+import logging
 import secrets
 import string
 from typing import Optional, List
 from datetime import date
+
+logger = logging.getLogger("mda")
 
 from fastapi import FastAPI, HTTPException, Header, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +24,8 @@ ALLOWED_ORIGINS = os.environ.get(
     "ALLOWED_ORIGINS",
     "https://students.medicaldoctor-studies.com,https://admin.medicaldoctor-studies.com"
 ).split(",")
+
+CRON_SECRET = os.environ.get("CRON_SECRET")
 
 if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
     raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set.")
@@ -186,6 +191,10 @@ class NotifyScheduleRequest(BaseModel):
     entry_date: str
     subject_name: Optional[str] = None
     details: Optional[str] = None
+
+
+class RequestResetRequest(BaseModel):
+    email: str
 
 
 # ── ROUTES ───────────────────────────────────────────────────
@@ -413,6 +422,136 @@ def notify_schedule(body: NotifyScheduleRequest, _=Depends(get_admin_user)):
         messages.append({"to": s["email"], "subject": subject, "html": html})
     sent = emails.send_batch(messages)
     return {"success": True, "recipients": len(students), "sent": sent}
+
+
+# ── PASSWORD RESET (self-service) ────────────────────────────
+
+def _extract_action_link(res):
+    """Pull the action_link out of a generate_link response (shape varies by version)."""
+    props = getattr(res, "properties", None)
+    if props is not None:
+        link = getattr(props, "action_link", None)
+        if link:
+            return link
+        if isinstance(props, dict):
+            return props.get("action_link")
+    if isinstance(res, dict):
+        return (res.get("properties") or {}).get("action_link")
+    return getattr(res, "action_link", None)
+
+
+@app.post("/student/request-reset")
+def request_reset(body: RequestResetRequest):
+    """Public: email a password-reset link. Always returns success (no account enumeration)."""
+    email = (body.email or "").strip()
+    if emails.is_valid_email(email):
+        try:
+            prof = (supabase.table("profiles").select("id, full_name, role, status")
+                    .eq("email", email).limit(1).execute().data)
+            if prof and prof[0].get("role") == "student" and prof[0].get("status") == "active":
+                link_res = supabase.auth.admin.generate_link({
+                    "type": "recovery",
+                    "email": email,
+                    "options": {"redirect_to": emails.RESET_URL},
+                })
+                action_link = _extract_action_link(link_res)
+                if action_link:
+                    subject, html = emails.reset_link_email(prof[0].get("full_name"), action_link)
+                    emails.send_email(email, subject, html)
+        except Exception as e:
+            logger.error("request-reset failed for %s: %s", email, e)
+    # Always the same response so callers can't probe which emails exist.
+    return {"success": True}
+
+
+# ── SCHEDULED REMINDERS (daily cron) ─────────────────────────
+
+def _to_date(val):
+    if not val:
+        return None
+    try:
+        return date.fromisoformat(str(val)[:10])
+    except Exception:
+        return None
+
+
+def _run_daily_reminders():
+    """Inactivity (7/15/30d) + one-time expiry (<=7d) reminders. Idempotent via email_log."""
+    today = date.today()
+    today_iso = today.isoformat()
+
+    students = (supabase.table("profiles")
+                .select("id, full_name, email, status, expiry_date, created_at")
+                .eq("role", "student").eq("status", "active").execute().data or [])
+    # Suppress expired accounts entirely.
+    students = [s for s in students
+                if s.get("email") and not (s.get("expiry_date") and s["expiry_date"] < today_iso)]
+    sid_set = {s["id"] for s in students}
+
+    # Last activity per student (most recent login session).
+    sessions = supabase.table("login_sessions").select("student_id, started_at").execute().data or []
+    last_act = {}
+    for ses in sessions:
+        sid = ses.get("student_id")
+        if sid not in sid_set:
+            continue
+        d = _to_date(ses.get("started_at"))
+        if d and (sid not in last_act or d > last_act[sid]):
+            last_act[sid] = d
+
+    logs = supabase.table("email_log").select("user_id, type, ref_date").execute().data or []
+    sent_keys = {(l["user_id"], l["type"], l.get("ref_date")) for l in logs}
+
+    inactivity_sent = 0
+    expiry_sent = 0
+    new_logs = []
+
+    for s in students:
+        sid, email, name = s["id"], s["email"], s.get("full_name")
+
+        # Inactivity — anchor on last login, else account creation.
+        anchor = last_act.get(sid) or _to_date(s.get("created_at")) or today
+        days = (today - anchor).days
+        anchor_iso = anchor.isoformat()
+        for t in (30, 15, 7):           # only the highest threshold reached is considered
+            if days >= t:
+                if (sid, f"inactive_{t}", anchor_iso) not in sent_keys:
+                    subject, html = emails.inactivity_email(name, email, days)
+                    if emails.send_email(email, subject, html):
+                        inactivity_sent += 1
+                    new_logs.append({"user_id": sid, "type": f"inactive_{t}", "ref_date": anchor_iso})
+                    sent_keys.add((sid, f"inactive_{t}", anchor_iso))
+                break
+
+        # Expiry — one reminder when within a week of expiring.
+        exp = s.get("expiry_date")
+        ed = _to_date(exp)
+        if ed:
+            dte = (ed - today).days
+            if 0 <= dte <= 7 and (sid, "expiry_7", exp) not in sent_keys:
+                subject, html = emails.expiry_email(name, email, exp, dte)
+                if emails.send_email(email, subject, html):
+                    expiry_sent += 1
+                new_logs.append({"user_id": sid, "type": "expiry_7", "ref_date": exp})
+                sent_keys.add((sid, "expiry_7", exp))
+
+    if new_logs:
+        try:
+            supabase.table("email_log").insert(new_logs).execute()
+        except Exception as e:
+            logger.error("Failed to record email_log: %s", e)
+
+    return {"success": True, "candidates": len(students),
+            "inactivity_sent": inactivity_sent, "expiry_sent": expiry_sent}
+
+
+@app.post("/cron/daily-emails")
+def cron_daily_emails(request: Request):
+    """Triggered once a day by an external cron. Protected by CRON_SECRET."""
+    provided = request.headers.get("x-cron-key") or request.query_params.get("key")
+    if not CRON_SECRET or provided != CRON_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return _run_daily_reminders()
 
 
 # ── ADMIN / SUPERADMIN MANAGEMENT (superadmin only) ──────────

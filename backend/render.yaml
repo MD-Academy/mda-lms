@@ -21,3 +21,5 @@ services:
         value: https://students.medicaldoctor-studies.com
       - key: LOGO_URL
         value: https://students.medicaldoctor-studies.com/assets/images/mda-logo.png
+      - key: CRON_SECRET
+        sync: false

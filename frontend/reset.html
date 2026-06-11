@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="assets/images/favicon.png?v=1">
+    <title>Medical Doctor Academy — Password Reset</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root { --navy-800:#0d2a52; --blue-500:#2563eb; --border:#e2e8f0; --text:#1e293b; --text-muted:#64748b; --red:#dc2626; --green:#16a34a; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #0d2a52, #1e3a8a); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; color: var(--text); }
+        .card { background: #fff; border-radius: 16px; padding: 38px 34px; max-width: 420px; width: 100%; box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+        .logo { display: block; width: 64px; height: 64px; border-radius: 50%; margin: 0 auto 18px; }
+        h1 { font-size: 21px; text-align: center; color: var(--navy-800); margin-bottom: 8px; }
+        p.sub { text-align: center; color: var(--text-muted); font-size: 14px; margin-bottom: 24px; line-height: 1.5; }
+        label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--text); }
+        input { width: 100%; height: 46px; border: 1.5px solid var(--border); border-radius: 10px; padding: 0 14px; font-size: 14px; font-family: inherit; outline: none; margin-bottom: 16px; }
+        input:focus { border-color: var(--blue-500); }
+        .btn { width: 100%; height: 48px; border: none; border-radius: 10px; background: var(--blue-500); color: #fff; font-weight: 700; font-size: 15px; cursor: pointer; }
+        .btn:disabled { opacity: .6; cursor: default; }
+        .alert { display: none; padding: 11px 14px; border-radius: 9px; font-size: 13.5px; margin-bottom: 16px; line-height: 1.5; }
+        .alert.error { background: #fee2e2; color: #991b1b; display: block; }
+        .alert.success { background: #dcfce7; color: #166534; display: block; }
+        .back { display: block; text-align: center; margin-top: 18px; font-size: 13px; color: var(--blue-500); text-decoration: none; }
+        .loader { text-align: center; color: var(--text-muted); font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <img src="assets/images/mda-logo.png" alt="MDA" class="logo">
+        <div id="view"><div class="loader">Loading…</div></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script>
+        const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const view = document.getElementById('view');
+
+        // When the user arrives via the emailed recovery link, Supabase establishes a
+        // short-lived recovery session and fires PASSWORD_RECOVERY. Show the new-password form then.
+        let recoveryMode = false;
+        db.auth.onAuthStateChange((event) => {
+            if (event === 'PASSWORD_RECOVERY') { recoveryMode = true; renderSetPassword(); }
+        });
+
+        function renderRequest() {
+            view.innerHTML = `
+                <h1>Reset your password</h1>
+                <p class="sub">Enter your account email and we'll send you a link to choose a new password.</p>
+                <div class="alert" id="msg"></div>
+                <form id="req-form">
+                    <label>Email</label>
+                    <input type="email" id="email" placeholder="you@example.com" autocomplete="username" required>
+                    <button type="submit" class="btn" id="req-btn">Send reset link</button>
+                </form>
+                <a class="back" href="index.html">← Back to sign in</a>`;
+            document.getElementById('req-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const email = document.getElementById('email').value.trim();
+                const btn = document.getElementById('req-btn');
+                const msg = document.getElementById('msg');
+                msg.className = 'alert';
+                btn.disabled = true; btn.textContent = 'Sending…';
+                try {
+                    const res = await fetch(`${BACKEND_URL}/student/request-reset`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email })
+                    });
+                    if (!res.ok) throw new Error('Something went wrong. Please try again.');
+                    msg.className = 'alert success';
+                    msg.textContent = 'If that email belongs to an active account, a reset link is on its way. Please check your inbox (and spam).';
+                    document.getElementById('req-form').reset();
+                } catch (err) {
+                    msg.className = 'alert error';
+                    msg.textContent = err.message;
+                } finally {
+                    btn.disabled = false; btn.textContent = 'Send reset link';
+                }
+            });
+        }
+
+        function renderSetPassword() {
+            view.innerHTML = `
+                <h1>Choose a new password</h1>
+                <p class="sub">Enter a new password for your account.</p>
+                <div class="alert" id="msg"></div>
+                <form id="pw-form">
+                    <label>New password</label>
+                    <input type="password" id="pw1" placeholder="At least 8 characters" required>
+                    <label>Confirm new password</label>
+                    <input type="password" id="pw2" placeholder="Re-type the new password" required>
+                    <button type="submit" class="btn" id="pw-btn">Update password</button>
+                </form>`;
+            document.getElementById('pw-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const p1 = document.getElementById('pw1').value, p2 = document.getElementById('pw2').value;
+                const btn = document.getElementById('pw-btn');
+                const msg = document.getElementById('msg');
+                msg.className = 'alert';
+                if (p1.length < 8) { msg.className = 'alert error'; msg.textContent = 'Password must be at least 8 characters.'; return; }
+                if (p1 !== p2) { msg.className = 'alert error'; msg.textContent = 'The two passwords do not match.'; return; }
+                btn.disabled = true; btn.textContent = 'Updating…';
+                try {
+                    const { error } = await db.auth.updateUser({ password: p1 });
+                    if (error) throw new Error(error.message);
+                    await db.auth.signOut();
+                    msg.className = 'alert success';
+                    msg.textContent = 'Password updated! Redirecting you to sign in…';
+                    setTimeout(() => { window.location.href = 'index.html'; }, 1800);
+                } catch (err) {
+                    msg.className = 'alert error';
+                    msg.textContent = err.message;
+                    btn.disabled = false; btn.textContent = 'Update password';
+                }
+            });
+        }
+
+        // Decide which view to show. If the URL carries a recovery token, wait briefly for
+        // Supabase to establish the recovery session; otherwise show the request form.
+        (async () => {
+            const hash = window.location.hash || '';
+            const looksLikeRecovery = hash.includes('type=recovery') || hash.includes('access_token');
+            if (looksLikeRecovery) {
+                view.innerHTML = `<div class="loader">Verifying your reset link…</div>`;
+                // Give onAuthStateChange a moment; fall back to checking the session directly.
+                setTimeout(async () => {
+                    if (recoveryMode) return;
+                    const { data: { session } } = await db.auth.getSession();
+                    if (session) { recoveryMode = true; renderSetPassword(); }
+                    else {
+                        view.innerHTML = `<h1>Link expired</h1><p class="sub">This reset link is invalid or has expired. Please request a new one.</p>`;
+                        setTimeout(renderRequest, 2200);
+                    }
+                }, 1200);
+            } else {
+                renderRequest();
+            }
+        })();
+    </script>
+</body>
+</html>

@@ -40,7 +40,7 @@ togglePw.addEventListener('click', () => {
 
 forgotLink.addEventListener('click', (e) => {
     e.preventDefault();
-    forgotModal.style.display = 'flex';
+    window.location.href = 'reset.html';
 });
 
 modalClose.addEventListener('click', () => {
