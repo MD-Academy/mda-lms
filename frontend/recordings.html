@@ -39,28 +39,86 @@
             const auth = await requireStudent();
             if (!auth) return;
             renderLayout('recordings', 'Zoom Recordings', 'Class recordings for your courses', auth.profile);
-            document.getElementById('page-content').innerHTML = `<div id="box"><div class="loader">Loading recordings…</div></div>`;
+            document.getElementById('page-content').innerHTML = `
+                <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:18px;">
+                    <input type="text" id="search-input" placeholder="Search by title or professor…" style="flex:1;min-width:200px;height:42px;border:1.5px solid var(--border);border-radius:10px;padding:0 14px;font-family:inherit;font-size:14px;outline:none;">
+                    <label style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:6px;">From <input type="date" id="date-from" style="height:40px;border:1.5px solid var(--border);border-radius:8px;padding:0 8px;font-family:inherit;"></label>
+                    <label style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:6px;">To <input type="date" id="date-to" style="height:40px;border:1.5px solid var(--border);border-radius:8px;padding:0 8px;font-family:inherit;"></label>
+                    <select id="page-size" style="height:42px;border:1.5px solid var(--border);border-radius:10px;padding:0 10px;font-family:inherit;background:#fff;cursor:pointer;">
+                        <option value="25">25 / page</option><option value="50">50 / page</option><option value="100">100 / page</option>
+                    </select>
+                </div>
+                <div id="box"><div class="loader">Loading recordings…</div></div>
+                <div id="pager" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:18px;flex-wrap:wrap;">
+                    <div id="pager-info" style="font-size:13px;color:var(--text-muted);"></div>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <button class="btn btn-ghost" id="prev-btn">← Prev</button>
+                        <span id="page-label" style="font-size:13px;"></span>
+                        <button class="btn btn-ghost" id="next-btn">Next →</button>
+                    </div>
+                </div>`;
 
-            const { data, error } = await db.from('recordings')
-                .select('id, title, professor, recorded_date, aws_url, is_visible')
-                .eq('kind', 'zoom').order('recorded_date', { ascending: false });
-
+            let currentPage = 1, pageSize = 25, totalCount = 0, searchQuery = '', dateFrom = '', dateTo = '', timer = null;
             const box = document.getElementById('box');
-            if (error) { box.innerHTML = `<div class="empty-state"><p>Could not load recordings.</p></div>`; return; }
-            const recs = data || [];
-            if (recs.length === 0) { box.innerHTML = `<div class="empty-state"><h3>No recordings yet</h3><p>Class recordings for your courses will appear here.</p></div>`; return; }
 
-            box.innerHTML = recs.map(r => `
-                <div class="item-row ${r.is_visible ? '' : 'locked'}">
-                    <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
-                    <div class="ir-body"><div class="ir-title">${esc(r.title)}</div><div class="ir-sub">${esc(r.professor)} · ${fmtDate(r.recorded_date)}</div></div>
-                    ${r.is_visible ? `<button class="btn btn-primary js-play" data-url="${esc(r.aws_url)}" data-title="${esc(r.title)}">▶ Play</button>` : LOCK}
-                </div>`).join('');
-
-            box.addEventListener('click', e => {
-                const b = e.target.closest('.js-play');
-                if (b) openVideo(b.dataset.url, b.dataset.title);
+            box.addEventListener('click', e => { const b = e.target.closest('.js-play'); if (b) openVideo(b.dataset.url, b.dataset.title); });
+            document.getElementById('search-input').addEventListener('input', () => {
+                clearTimeout(timer);
+                timer = setTimeout(() => { searchQuery = document.getElementById('search-input').value.trim(); currentPage = 1; load(); }, 300);
             });
+            ['date-from', 'date-to', 'page-size'].forEach(id => document.getElementById(id).addEventListener('change', () => {
+                dateFrom = document.getElementById('date-from').value || '';
+                dateTo = document.getElementById('date-to').value || '';
+                pageSize = parseInt(document.getElementById('page-size').value, 10) || 25;
+                currentPage = 1; load();
+            }));
+            document.getElementById('prev-btn').addEventListener('click', () => { if (currentPage > 1) { currentPage--; load(); window.scrollTo({ top: 0, behavior: 'smooth' }); } });
+            document.getElementById('next-btn').addEventListener('click', () => { const tp = Math.max(1, Math.ceil(totalCount / pageSize)); if (currentPage < tp) { currentPage++; load(); window.scrollTo({ top: 0, behavior: 'smooth' }); } });
+
+            async function load() {
+                box.innerHTML = `<div class="loader">Loading recordings…</div>`;
+                const from = (currentPage - 1) * pageSize, to = from + pageSize - 1;
+                let q = db.from('recordings').select('id, title, professor, recorded_date, aws_url, is_visible', { count: 'exact' }).eq('kind', 'zoom');
+                const term = searchQuery.replace(/[%,()]/g, ' ').trim();
+                if (term) q = q.or(`title.ilike.%${term}%,professor.ilike.%${term}%`);
+                if (dateFrom) q = q.gte('recorded_date', dateFrom);
+                if (dateTo) q = q.lte('recorded_date', dateTo);
+                q = q.order('recorded_date', { ascending: false }).range(from, to);
+
+                const { data, error, count } = await q;
+                if (error) {
+                    console.error('[recordings] load failed:', error);
+                    box.innerHTML = `<div class="empty-state"><h3 style="color:var(--red)">Couldn't load recordings</h3><p>Please refresh. If it keeps happening, contact the office.</p></div>`;
+                    renderPager(); return;
+                }
+                const recs = data || []; totalCount = count || 0;
+                if (recs.length === 0) {
+                    const any = searchQuery || dateFrom || dateTo;
+                    box.innerHTML = `<div class="empty-state"><h3>${any ? 'No recordings match' : 'No recordings yet'}</h3><p>${any ? 'Try a different search or date range.' : 'Class recordings for your courses will appear here.'}</p></div>`;
+                    renderPager(); return;
+                }
+                box.innerHTML = recs.map(r => `
+                    <div class="item-row ${r.is_visible ? '' : 'locked'}">
+                        <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
+                        <div class="ir-body"><div class="ir-title">${esc(r.title)}</div><div class="ir-sub">${esc(r.professor)} · ${fmtDate(r.recorded_date)}</div></div>
+                        ${r.is_visible ? `<button class="btn btn-primary js-play" data-url="${esc(r.aws_url)}" data-title="${esc(r.title)}">▶ Play</button>` : LOCK}
+                    </div>`).join('');
+                renderPager();
+            }
+
+            function renderPager() {
+                const tp = Math.max(1, Math.ceil(totalCount / pageSize));
+                if (currentPage > tp) currentPage = tp;
+                const info = document.getElementById('pager-info');
+                if (totalCount === 0) info.textContent = '';
+                else { const s = (currentPage - 1) * pageSize + 1, e = Math.min(currentPage * pageSize, totalCount); info.textContent = `Showing ${s}–${e} of ${totalCount}`; }
+                document.getElementById('page-label').textContent = `Page ${currentPage} of ${tp}`;
+                const prev = document.getElementById('prev-btn'), next = document.getElementById('next-btn');
+                prev.disabled = currentPage <= 1; next.disabled = currentPage >= tp;
+                prev.style.opacity = prev.disabled ? '.4' : '1'; next.style.opacity = next.disabled ? '.4' : '1';
+            }
+
+            load();
         })();
     </script>
 </body>
