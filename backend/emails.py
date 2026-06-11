@@ -44,6 +44,40 @@ def _esc(s) -> str:
             .replace(">", "&gt;").replace('"', "&quot;"))
 
 
+def send_batch(messages: list) -> int:
+    """Send many emails via Resend's batch endpoint (max 100 per call; we chunk).
+    messages = [{"to": str, "subject": str, "html": str}, ...].
+    Returns how many were accepted. Never raises."""
+    if not RESEND_API_KEY:
+        logger.warning("RESEND_API_KEY not set — skipping batch of %d emails", len(messages))
+        return 0
+    valid = [m for m in messages if is_valid_email(m.get("to", ""))]
+    sent = 0
+    for i in range(0, len(valid), 100):
+        chunk = valid[i:i + 100]
+        payload = [{
+            "from": EMAIL_FROM,
+            "to": [m["to"]],
+            "reply_to": EMAIL_REPLY_TO,
+            "subject": m["subject"],
+            "html": m["html"],
+        } for m in chunk]
+        try:
+            resp = httpx.post(
+                "https://api.resend.com/emails/batch",
+                headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=30.0,
+            )
+            if resp.status_code >= 400:
+                logger.error("Resend batch rejected (%d emails): %s %s", len(chunk), resp.status_code, resp.text)
+                continue
+            sent += len(chunk)
+        except Exception as e:
+            logger.error("Failed to send batch of %d emails: %s", len(chunk), e)
+    return sent
+
+
 def send_email(to: str, subject: str, html: str) -> bool:
     """Send one email through Resend. Returns True on success, False otherwise.
     Never raises."""
@@ -143,3 +177,41 @@ def welcome_email(full_name: str, email: str, password: str, expiry_date: str = 
         <strong>My Profile</strong> page. You can also enable two-factor authentication there.</p>
       {expiry_line}"""
     return ("Welcome to Medical Doctor International Academy — your login details", _wrap("Welcome aboard 👋", body))
+
+
+def _greeting(full_name: str) -> str:
+    first = (full_name or "there").strip().split()[0] if full_name else "there"
+    return f'<p style="margin:0 0 16px;font-size:15px;line-height:1.6;">Dear {_esc(first)},</p>'
+
+
+def announcement_email(full_name: str, title: str, body_text: str):
+    """Returns (subject, html) for a new-announcement notification."""
+    safe_body = _esc(body_text).replace("\n", "<br>")
+    body = f"""\
+      {_greeting(full_name)}
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">A new announcement has been posted:</p>
+      <div style="background:#f7f9fc;border:1px solid #e6ecf4;border-left:4px solid #2563eb;border-radius:10px;padding:16px 18px;margin:6px 0 4px;">
+        <div style="font-size:16px;font-weight:700;color:#0d2a52;margin-bottom:6px;">{_esc(title)}</div>
+        <div style="font-size:14px;line-height:1.6;color:#334155;">{safe_body}</div>
+      </div>
+      {_button("Open the portal", STUDENT_URL)}
+      <p style="margin:0;font-size:12px;color:#94a3b8;">You're receiving this because announcement emails are on in your profile. You can turn them off under <strong>My Profile → Notifications</strong>.</p>"""
+    return (f"New announcement: {title}", _wrap("📣 New announcement", body))
+
+
+def schedule_email(full_name: str, topic: str, date_str: str, subject_name: str = None, details: str = None):
+    """Returns (subject, html) for a new scheduled-session notification."""
+    rows = f'<strong>Topic:</strong> {_esc(topic)}<br><strong>Date:</strong> {_esc(date_str)}'
+    if subject_name:
+        rows += f'<br><strong>Subject:</strong> {_esc(subject_name)}'
+    if details:
+        rows += f'<br><strong>Details:</strong> {_esc(details)}'
+    body = f"""\
+      {_greeting(full_name)}
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">A new session has been added to the calendar:</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f7f9fc;border:1px solid #e6ecf4;border-radius:10px;margin:6px 0 4px;">
+        <tr><td style="padding:16px 18px;font-size:15px;line-height:1.9;color:#334155;">{rows}</td></tr>
+      </table>
+      {_button("View your calendar", STUDENT_URL + "/dashboard.html")}
+      <p style="margin:0;font-size:12px;color:#94a3b8;">You're receiving this because schedule emails are on in your profile. You can turn them off under <strong>My Profile → Notifications</strong>.</p>"""
+    return (f"New session scheduled: {topic}", _wrap("🗓️ New scheduled session", body))

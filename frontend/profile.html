@@ -17,7 +17,12 @@
         .prof-wrap .form-field { margin-bottom: 22px; }
         .prof-wrap .form-field input, .prof-wrap .form-field select { max-width: 360px; }
         .prof-wrap .form-field input[disabled] { max-width: 460px; }
-    </style>
+        .notify-row { display: flex; align-items: center; justify-content: space-between; gap: 18px;
+            padding: 14px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+        .notify-row:last-of-type { border-bottom: none; }
+        .notify-row .notify-sub { color: var(--text-muted); font-size: 12.5px; font-weight: 400; }
+        .notify-row input[type="checkbox"] { width: 20px; height: 20px; flex-shrink: 0; accent-color: var(--blue-500); cursor: pointer; }
+</style>
 </head>
 <body>
     <div class="layout" id="app-layout"></div>
@@ -42,8 +47,11 @@
 
             const email = auth.session.user.email || '—';
             const initials = (auth.profile.full_name || 'S').trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase();
-            const { data: prof } = await db.from('profiles').select('title').eq('id', auth.session.user.id).single();
+            const { data: prof } = await db.from('profiles').select('title, notify_announcements, notify_schedule').eq('id', auth.session.user.id).single();
             const myTitle = (prof && prof.title) || '';
+            // Default to ON if the column is missing/null (opt-out model).
+            const notifyAnn = !prof || prof.notify_announcements !== false;
+            const notifySched = !prof || prof.notify_schedule !== false;
             document.getElementById('page-content').innerHTML = `
                 <div class="prof-wrap">
                     <div class="panel" style="margin-bottom:22px; display:flex; align-items:center; gap:18px;">
@@ -74,10 +82,42 @@
                         </form>
                     </div>
                     <div class="panel" style="margin-top:22px;">
+                        <div class="section-title" style="margin-bottom:6px;">Email Notifications</div>
+                        <p style="color:var(--text-muted);font-size:13px;margin-bottom:16px;">Choose which updates we email you. You can change these anytime.</p>
+                        <label class="notify-row"><span><strong>New announcements</strong><br><span class="notify-sub">When the office or a teacher posts an announcement.</span></span>
+                            <input type="checkbox" id="ntf-ann" ${notifyAnn ? 'checked' : ''}></label>
+                        <label class="notify-row"><span><strong>New scheduled sessions</strong><br><span class="notify-sub">When a new session is added to the calendar.</span></span>
+                            <input type="checkbox" id="ntf-sched" ${notifySched ? 'checked' : ''}></label>
+                        <div class="hint" id="ntf-msg" style="margin-top:10px;min-height:16px;"></div>
+                    </div>
+                    <div class="panel" style="margin-top:22px;">
                         <div class="section-title" style="margin-bottom:10px;">Two-Factor Authentication (2FA)</div>
                         <div id="mfa-section"></div>
                     </div>
                 </div>`;
+
+            // Notification preferences — save on toggle via the backend.
+            const ntfMsg = document.getElementById('ntf-msg');
+            let ntfTimer = null;
+            async function saveNotifyPrefs() {
+                clearTimeout(ntfTimer);
+                ntfMsg.style.color = 'var(--text-muted)';
+                ntfMsg.textContent = 'Saving…';
+                try {
+                    await apiRequest('POST', '/student/notification-prefs', {
+                        notify_announcements: document.getElementById('ntf-ann').checked,
+                        notify_schedule: document.getElementById('ntf-sched').checked
+                    });
+                    ntfMsg.style.color = 'var(--green)';
+                    ntfMsg.textContent = 'Saved ✓';
+                    ntfTimer = setTimeout(() => { ntfMsg.textContent = ''; }, 2500);
+                } catch (err) {
+                    ntfMsg.style.color = 'var(--red)';
+                    ntfMsg.textContent = `Couldn't save: ${err.message}`;
+                }
+            }
+            document.getElementById('ntf-ann').addEventListener('change', saveNotifyPrefs);
+            document.getElementById('ntf-sched').addEventListener('change', saveNotifyPrefs);
 
             // Avatar upload
             const msg = document.getElementById('avatar-msg');

@@ -171,6 +171,23 @@ class SignedUrlRequest(BaseModel):
     storage_path: str
 
 
+class NotifPrefsRequest(BaseModel):
+    notify_announcements: bool
+    notify_schedule: bool
+
+
+class NotifyAnnouncementRequest(BaseModel):
+    title: str
+    body: str
+
+
+class NotifyScheduleRequest(BaseModel):
+    topic: str
+    entry_date: str
+    subject_name: Optional[str] = None
+    details: Optional[str] = None
+
+
 # ── ROUTES ───────────────────────────────────────────────────
 
 @app.get("/health")
@@ -203,7 +220,7 @@ def create_student(body: CreateStudentRequest, _=Depends(get_superadmin_user)):
 
     user_id = result.user.id
 
-    update_data = {"full_name": body.full_name, "role": "student", "status": "active"}
+    update_data = {"full_name": body.full_name, "email": body.email, "role": "student", "status": "active"}
     if body.expiry_date:
         update_data["expiry_date"] = body.expiry_date
 
@@ -266,6 +283,7 @@ def bulk_create_students(body: BulkCreateRequest, _=Depends(get_superadmin_user)
             update_data = {
                 "id": user_id,
                 "full_name": entry.full_name,
+                "email": entry.email,
                 "role": "student",
                 "status": "active"
             }
@@ -342,6 +360,61 @@ def reset_password(user_id: str, _=Depends(get_superadmin_user)):
     return {"success": True, "new_password": new_password}
 
 
+# ── EMAIL NOTIFICATIONS (Phase 2) ────────────────────────────
+
+def _active_subscribed_students(pref_column: str):
+    """Active, non-expired students who opted in to `pref_column`, with a valid email."""
+    today = date.today().isoformat()
+    rows = (supabase.table("profiles")
+            .select("full_name, email, status, expiry_date")
+            .eq("role", "student").eq("status", "active").eq(pref_column, True)
+            .execute().data or [])
+    out = []
+    for r in rows:
+        exp = r.get("expiry_date")
+        if exp and exp < today:
+            continue  # expired → suppress
+        if r.get("email"):
+            out.append(r)
+    return out
+
+
+@app.post("/student/notification-prefs")
+def set_notification_prefs(body: NotifPrefsRequest, authorization: str = Header(...)):
+    """A student updates their own email-notification toggles."""
+    user = _require_active_student(authorization)
+    supabase.table("profiles").update({
+        "notify_announcements": body.notify_announcements,
+        "notify_schedule": body.notify_schedule,
+    }).eq("id", user.id).execute()
+    return {"success": True}
+
+
+@app.post("/admin/notify/announcement")
+def notify_announcement(body: NotifyAnnouncementRequest, _=Depends(get_admin_user)):
+    """Email subscribed students that a new announcement was posted."""
+    students = _active_subscribed_students("notify_announcements")
+    messages = []
+    for s in students:
+        subject, html = emails.announcement_email(s.get("full_name"), body.title, body.body)
+        messages.append({"to": s["email"], "subject": subject, "html": html})
+    sent = emails.send_batch(messages)
+    return {"success": True, "recipients": len(students), "sent": sent}
+
+
+@app.post("/admin/notify/schedule")
+def notify_schedule(body: NotifyScheduleRequest, _=Depends(get_admin_user)):
+    """Email subscribed students that a new session was scheduled."""
+    students = _active_subscribed_students("notify_schedule")
+    messages = []
+    for s in students:
+        subject, html = emails.schedule_email(s.get("full_name"), body.topic, body.entry_date,
+                                               body.subject_name, body.details)
+        messages.append({"to": s["email"], "subject": subject, "html": html})
+    sent = emails.send_batch(messages)
+    return {"success": True, "recipients": len(students), "sent": sent}
+
+
 # ── ADMIN / SUPERADMIN MANAGEMENT (superadmin only) ──────────
 
 @app.post("/admin/create-admin")
@@ -366,7 +439,7 @@ def create_admin(body: CreateAdminRequest, _=Depends(get_superadmin_user)):
     user_id = result.user.id
     try:
         supabase.table("profiles").upsert({
-            "id": user_id, "full_name": body.full_name, "role": role, "status": "active"
+            "id": user_id, "full_name": body.full_name, "email": body.email, "role": role, "status": "active"
         }).execute()
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"User created but profile update failed: {str(e)}")
