@@ -25,7 +25,7 @@
             document.getElementById('page-content').innerHTML = `<div id="box"><div class="loader">Loading your courses…</div></div>`;
 
             const [cRes, csRes] = await Promise.all([
-                db.from('courses').select('id, name, description').order('name', { ascending: true }),
+                db.from('courses').select('id, name, description, image_url').order('name', { ascending: true }),
                 db.from('course_subjects').select('course_id, room_id')
             ]);
             const courses = cRes.data || [];
@@ -39,7 +39,7 @@
             }
             box.innerHTML = `<div class="card-grid">${courses.map(c => `
                 <div class="course-card" onclick="location.href='course.html?id=${encodeURIComponent(c.id)}'">
-                    <div class="cc-top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg></div>
+                    <div class="cc-top" ${c.image_url ? `style="background:url('${esc(c.image_url)}') center/cover;"` : ''}>${c.image_url ? '' : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`}</div>
                     <div class="cc-body">
                         <div class="cc-title">${esc(c.name)}</div>
                         <div class="cc-sub">${esc(c.description) || 'Open to see your subjects and materials'}</div>

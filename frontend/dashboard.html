@@ -50,7 +50,7 @@
             const todayIso = today.toISOString().slice(0,10);
 
             const [coursesRes, csRes, roomsRes, schedRes, annRes] = await Promise.all([
-                db.from('courses').select('id, name, description, expires_at').order('name', { ascending: true }),
+                db.from('courses').select('id, name, description, expires_at, image_url').order('name', { ascending: true }),
                 db.from('course_subjects').select('course_id, room_id'),
                 db.from('rooms').select('id, name'),
                 db.from('schedule_entries').select('id, room_id, entry_date, topic, details').gte('entry_date', todayIso).order('entry_date', { ascending: true }).limit(8),
@@ -66,8 +66,8 @@
                 coursesBox.innerHTML = `<div class="empty-state"><h3>No active courses</h3><p>You're not enrolled in an active course yet. Please contact the office.</p></div>`;
             } else {
                 coursesBox.innerHTML = `<div class="card-grid">${courses.map(c => `
-                    <div class="course-card">
-                        <div class="cc-top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg></div>
+                    <div class="course-card" onclick="location.href='course.html?id=${encodeURIComponent(c.id)}'">
+                        <div class="cc-top" ${c.image_url ? `style="background:url('${esc(c.image_url)}') center/cover;"` : ''}>${c.image_url ? '' : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`}</div>
                         <div class="cc-body">
                             <div class="cc-title">${esc(c.name)}</div>
                             <div class="cc-sub">${esc(c.description) || 'Your enrolled course'}</div>
