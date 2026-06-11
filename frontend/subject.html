@@ -66,6 +66,7 @@
                 <div class="section"><div class="section-title">🎥 Video Lectures</div><div id="lectures-box"><div class="loader">Loading…</div></div></div>
                 <div class="section"><div class="section-title">📄 Study Materials</div><div id="materials-box"><div class="loader">Loading…</div></div></div>
                 <div class="section"><div class="section-title">📝 Additional Notes</div><div id="notes-box"><div class="loader">Loading…</div></div></div>
+                <div class="section"><div class="section-title">✅ Quizzes</div><div id="quizzes-box"><div class="loader">Loading…</div></div></div>
             `;
 
             const [lRes, recRes, mRes] = await Promise.all([
@@ -109,6 +110,23 @@
                     </div>`).join('');
             document.getElementById('materials-box').innerHTML = matHtml(mats);
             document.getElementById('notes-box').innerHTML = matHtml(notes);
+
+            // Quizzes (per-lesson) — only visible/accessible ones are returned by RLS
+            const lessonTitleMap = {}; lessons.forEach(l => lessonTitleMap[l.id] = l.title);
+            const lessonIds = lessons.map(l => l.id);
+            let quizzes = [];
+            if (lessonIds.length) {
+                const { data } = await db.from('quizzes').select('id, lesson_id').in('lesson_id', lessonIds);
+                quizzes = data || [];
+            }
+            document.getElementById('quizzes-box').innerHTML = quizzes.length === 0
+                ? `<div class="empty-state" style="padding:24px;"><p>No quizzes yet.</p></div>`
+                : quizzes.map(q => `
+                    <div class="item-row">
+                        <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
+                        <div class="ir-body"><div class="ir-title">Quiz — ${esc(lessonTitleMap[q.lesson_id] || 'Lesson')}</div><div class="ir-sub">Answer all questions correctly to pass</div></div>
+                        <button class="btn btn-primary" onclick="location.href='take-quiz.html?id=${encodeURIComponent(q.id)}'">Start Quiz</button>
+                    </div>`).join('');
         })();
     </script>
 </body>
