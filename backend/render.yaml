@@ -11,3 +11,13 @@ services:
         sync: false
       - key: ALLOWED_ORIGINS
         value: https://students.medicaldoctor-studies.com,https://admin.medicaldoctor-studies.com
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        value: Medical Doctor Academy <noreply@medicaldoctor-studies.com>
+      - key: EMAIL_REPLY_TO
+        value: info@medicaldoctor-studies.com
+      - key: STUDENT_URL
+        value: https://students.medicaldoctor-studies.com
+      - key: LOGO_URL
+        value: https://students.medicaldoctor-studies.com/assets/images/mda-logo.png

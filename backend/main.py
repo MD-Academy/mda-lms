@@ -11,6 +11,8 @@ from pydantic import BaseModel
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
+import emails
+
 load_dotenv()
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -179,6 +181,8 @@ def health_check():
 @app.post("/admin/create-student")
 def create_student(body: CreateStudentRequest, _=Depends(get_superadmin_user)):
     """Create a single student account."""
+    if not emails.is_valid_email(body.email):
+        raise HTTPException(status_code=400, detail=f"'{body.email}' is not a valid email address.")
     password = body.password or generate_password()
 
     try:
@@ -211,12 +215,18 @@ def create_student(body: CreateStudentRequest, _=Depends(get_superadmin_user)):
             detail=f"User was created in auth but profile update failed: {str(e)}"
         )
 
+    # Welcome email with login details. Never let a mail failure break creation —
+    # the admin still gets the credentials in the response to hand over manually.
+    subject, html = emails.welcome_email(body.full_name, body.email, password, body.expiry_date)
+    email_sent = emails.send_email(body.email, subject, html)
+
     return {
         "success": True,
         "user_id": user_id,
         "email": body.email,
         "password": password,
-        "full_name": body.full_name
+        "full_name": body.full_name,
+        "email_sent": email_sent
     }
 
 
@@ -229,6 +239,14 @@ def bulk_create_students(body: BulkCreateRequest, _=Depends(get_superadmin_user)
     existing_usernames: set = set()
 
     for entry in body.students:
+        if not emails.is_valid_email(entry.email):
+            failed.append({
+                "full_name": entry.full_name,
+                "email": entry.email,
+                "error": "Invalid email address"
+            })
+            continue
+
         password = generate_password()
         username = generate_username(entry.full_name, existing_usernames)
         existing_usernames.add(username)
@@ -256,11 +274,15 @@ def bulk_create_students(body: BulkCreateRequest, _=Depends(get_superadmin_user)
 
             supabase.table("profiles").upsert(update_data).execute()
 
+            subject, html = emails.welcome_email(entry.full_name, entry.email, password, body.expiry_date)
+            email_sent = emails.send_email(entry.email, subject, html)
+
             created.append({
                 "full_name": entry.full_name,
                 "email": entry.email,
                 "password": password,
-                "user_id": user_id
+                "user_id": user_id,
+                "email_sent": email_sent
             })
 
         except Exception as e:
