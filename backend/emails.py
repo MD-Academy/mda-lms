@@ -23,7 +23,7 @@ import httpx
 logger = logging.getLogger("mda.emails")
 
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
-EMAIL_FROM = os.environ.get("EMAIL_FROM", "Medical Doctor Academy <noreply@medicaldoctor-studies.com>")
+EMAIL_FROM = os.environ.get("EMAIL_FROM", "Medical Doctor Academy <noreply@updates.medicaldoctor-studies.com>")
 EMAIL_REPLY_TO = os.environ.get("EMAIL_REPLY_TO", "info@medicaldoctor-studies.com")
 STUDENT_URL = os.environ.get("STUDENT_URL", "https://students.medicaldoctor-studies.com").rstrip("/")
 LOGO_URL = os.environ.get("LOGO_URL", f"{STUDENT_URL}/assets/images/mda-logo.png")

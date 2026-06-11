@@ -14,7 +14,7 @@ services:
       - key: RESEND_API_KEY
         sync: false
       - key: EMAIL_FROM
-        value: Medical Doctor Academy <noreply@medicaldoctor-studies.com>
+        value: Medical Doctor Academy <noreply@updates.medicaldoctor-studies.com>
       - key: EMAIL_REPLY_TO
         value: info@medicaldoctor-studies.com
       - key: STUDENT_URL
