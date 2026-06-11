@@ -553,3 +553,109 @@ def student_exam_submit(body: ExamSubmitReq, authorization: str = Header(...)):
 
     return {"score": score, "passed": passed, "total": total, "correct": correct,
             "wrong": wrong, "pass_threshold": e["pass_threshold"]}
+
+
+# ── STUDENT PER-LESSON QUIZZES (10/10 to pass, with cooldown) ──
+
+class QuizQReq(BaseModel):
+    quiz_id: str
+
+class QuizSubmitReq(BaseModel):
+    quiz_id: str
+    answers: dict
+
+
+def _verify_quiz_access(user_id: str, quiz_id: str):
+    qz = supabase.table("quizzes").select("id, lesson_id, time_limit_minutes, cooldown_minutes, is_visible").eq("id", quiz_id).limit(1).execute().data
+    if not qz or not qz[0].get("is_visible"):
+        raise HTTPException(status_code=403, detail="This quiz isn't available.")
+    q = qz[0]
+    les = supabase.table("lessons").select("room_id, is_visible").eq("id", q["lesson_id"]).limit(1).execute().data
+    if not les or not les[0].get("is_visible"):
+        raise HTTPException(status_code=403, detail="This quiz isn't available.")
+    room_id = les[0]["room_id"]
+    rm = supabase.table("rooms").select("is_visible").eq("id", room_id).limit(1).execute().data
+    if not rm or not rm[0].get("is_visible"):
+        raise HTTPException(status_code=403, detail="This quiz isn't available.")
+    enr = supabase.table("course_enrollments").select("course_id").eq("student_id", user_id).execute().data
+    course_ids = [r["course_id"] for r in (enr or [])]
+    if not course_ids:
+        raise HTTPException(status_code=403, detail="You don't have access to this quiz.")
+    cs = supabase.table("course_subjects").select("course_id").eq("room_id", room_id).in_("course_id", course_ids).execute().data
+    cand = [r["course_id"] for r in (cs or [])]
+    if not cand:
+        raise HTTPException(status_code=403, detail="You don't have access to this quiz.")
+    today_iso = date.today().isoformat()
+    crs = supabase.table("courses").select("is_visible, expires_at").in_("id", cand).execute().data
+    if not any(c.get("is_visible") and (not c.get("expires_at") or c["expires_at"] >= today_iso) for c in (crs or [])):
+        raise HTTPException(status_code=403, detail="You don't have access to this quiz.")
+    return q
+
+
+def _cooldown_remaining(user_id: str, quiz_id: str, cooldown_minutes: int):
+    from datetime import datetime, timezone
+    if not cooldown_minutes:
+        return 0
+    last = supabase.table("quiz_attempts").select("completed_at").eq("quiz_id", quiz_id).eq("student_id", user_id).not_.is_("completed_at", "null").order("completed_at", desc=True).limit(1).execute().data
+    if not last or not last[0].get("completed_at"):
+        return 0
+    ts = last[0]["completed_at"].replace("Z", "+00:00")
+    try:
+        last_dt = datetime.fromisoformat(ts)
+    except Exception:
+        return 0
+    if last_dt.tzinfo is None:
+        last_dt = last_dt.replace(tzinfo=timezone.utc)
+    elapsed = (datetime.now(timezone.utc) - last_dt).total_seconds()
+    remaining = cooldown_minutes * 60 - elapsed
+    return int(remaining) if remaining > 0 else 0
+
+
+@app.post("/student/quiz-questions")
+def student_quiz_questions(body: QuizQReq, authorization: str = Header(...)):
+    user = _require_active_student(authorization)
+    q = _verify_quiz_access(user.id, body.quiz_id)
+    qs = supabase.table("quiz_questions").select("id, question_text, options_json, order_index").eq("quiz_id", body.quiz_id).order("order_index").execute().data or []
+    return {
+        "quiz": {"id": q["id"], "time_limit_minutes": q.get("time_limit_minutes"), "cooldown_minutes": q.get("cooldown_minutes")},
+        "questions": qs,
+        "cooldown_remaining": _cooldown_remaining(user.id, body.quiz_id, q.get("cooldown_minutes") or 0)
+    }
+
+
+@app.post("/student/quiz-submit")
+def student_quiz_submit(body: QuizSubmitReq, authorization: str = Header(...)):
+    from datetime import datetime, timezone
+    user = _require_active_student(authorization)
+    q = _verify_quiz_access(user.id, body.quiz_id)
+
+    remaining = _cooldown_remaining(user.id, body.quiz_id, q.get("cooldown_minutes") or 0)
+    if remaining > 0:
+        raise HTTPException(status_code=403, detail=f"Please wait {remaining // 60}m {remaining % 60}s before retaking this quiz.")
+
+    qs = supabase.table("quiz_questions").select("id, correct_answer_index, order_index").eq("quiz_id", body.quiz_id).order("order_index").execute().data or []
+    if not qs:
+        raise HTTPException(status_code=400, detail="This quiz has no questions yet.")
+
+    total = len(qs)
+    correct = 0
+    wrong = []
+    for i, qq in enumerate(qs, start=1):
+        ans = body.answers.get(qq["id"])
+        try:
+            if ans is not None and int(ans) == qq["correct_answer_index"]:
+                correct += 1
+            else:
+                wrong.append(i)
+        except (ValueError, TypeError):
+            wrong.append(i)
+
+    score = round(correct / total * 100)
+    passed = (correct == total)   # 10/10 rule: every question must be correct
+    supabase.table("quiz_attempts").insert({
+        "student_id": user.id, "quiz_id": body.quiz_id,
+        "score": score, "answers_json": body.answers,
+        "completed_at": datetime.now(timezone.utc).isoformat()
+    }).execute()
+
+    return {"score": score, "passed": passed, "total": total, "correct": correct, "wrong": wrong}
