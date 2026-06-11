@@ -94,7 +94,7 @@
                     <div class="item-row ${r.is_visible ? '' : 'locked'}">
                         <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
                         <div class="ir-body"><div class="ir-title">${esc(r.title)}</div><div class="ir-sub">${esc(r.professor)} · ${fmtDate(r.recorded_date)}</div></div>
-                        ${r.is_visible ? `<button class="btn btn-primary" onclick="openVideo('${esc(r.aws_url)}','${esc(r.title)}')">▶ Play</button>` : LOCK}
+                        ${r.is_visible ? `<button class="btn btn-primary js-play" data-url="${esc(r.aws_url)}" data-title="${esc(r.title)}">▶ Play</button>` : LOCK}
                     </div>`).join('');
 
             // Materials & Notes
@@ -106,10 +106,17 @@
                     <div class="item-row ${m.is_visible ? '' : 'locked'}">
                         <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
                         <div class="ir-body"><div class="ir-title">${esc(m.title)}</div><div class="ir-sub">${esc((m.type||'file').toUpperCase())}</div></div>
-                        ${m.is_visible ? `<button class="btn btn-primary" onclick="openMaterial('${esc(m.storage_path)}','${esc(m.title)}')">Read</button>` : LOCK}
+                        ${m.is_visible ? `<button class="btn btn-primary js-read" data-path="${esc(m.storage_path)}" data-title="${esc(m.title)}">Read</button>` : LOCK}
                     </div>`).join('');
             document.getElementById('materials-box').innerHTML = matHtml(mats);
             document.getElementById('notes-box').innerHTML = matHtml(notes);
+
+            document.getElementById('page-content').addEventListener('click', e => {
+                const play = e.target.closest('.js-play');
+                if (play) { openVideo(play.dataset.url, play.dataset.title); return; }
+                const read = e.target.closest('.js-read');
+                if (read) openMaterial(read.dataset.path, read.dataset.title);
+            });
 
             // Quizzes (per-lesson) — only visible/accessible ones are returned by RLS
             const lessonTitleMap = {}; lessons.forEach(l => lessonTitleMap[l.id] = l.title);

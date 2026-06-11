@@ -54,8 +54,13 @@
                 <div class="item-row ${r.is_visible ? '' : 'locked'}">
                     <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
                     <div class="ir-body"><div class="ir-title">${esc(r.title)}</div><div class="ir-sub">${esc(r.professor)} · ${fmtDate(r.recorded_date)}</div></div>
-                    ${r.is_visible ? `<button class="btn btn-primary" onclick="openVideo('${esc(r.aws_url)}','${esc(r.title)}')">▶ Play</button>` : LOCK}
+                    ${r.is_visible ? `<button class="btn btn-primary js-play" data-url="${esc(r.aws_url)}" data-title="${esc(r.title)}">▶ Play</button>` : LOCK}
                 </div>`).join('');
+
+            box.addEventListener('click', e => {
+                const b = e.target.closest('.js-play');
+                if (b) openVideo(b.dataset.url, b.dataset.title);
+            });
         })();
     </script>
 </body>
