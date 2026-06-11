@@ -30,11 +30,18 @@
                 db.from('exam_attempts').select('exam_id, score, passed')
             ]);
 
+            const box = document.getElementById('box');
+            if (exRes.error) {
+                console.error('[exams] exams failed to load:', exRes.error);
+                box.innerHTML = `<div class="empty-state"><h3 style="color:var(--red)">Couldn't load your exams</h3><p>Please refresh the page. If it keeps happening, contact the office.</p></div>`;
+                return;
+            }
+            if (atRes.error) console.error('[exams] prior scores failed to load:', atRes.error);  // non-critical: exams still list, just without score badges
+
             const attempts = {};
             (atRes.data || []).forEach(a => { attempts[a.exam_id] = a; });
             const exams = (exRes.data || []).filter(e => e.is_visible);
 
-            const box = document.getElementById('box');
             if (exams.length === 0) {
                 box.innerHTML = `<div class="empty-state"><h3>No exams yet</h3><p>Practice exams for your courses will appear here.</p></div>`;
                 return;

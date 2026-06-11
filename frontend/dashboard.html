@@ -19,6 +19,11 @@
     <script>
         function esc(s){ return s ? String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) : ''; }
         function fmtDateTime(d){ return new Date(d).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}); }
+        function loadError(boxId, what, err){
+            console.error(`[dashboard] ${what} failed to load:`, err);
+            const el = document.getElementById(boxId);
+            if (el) el.innerHTML = `<div class="empty-state" style="padding:28px;"><h3 style="color:var(--red)">Couldn't load ${what}</h3><p>Please refresh the page. If it keeps happening, contact the office.</p></div>`;
+        }
 
         (async () => {
             const auth = await requireStudent();
@@ -58,54 +63,68 @@
             ]);
 
             // Courses
-            const courses = coursesRes.data || [];
-            const subjCount = {};
-            (csRes.data || []).forEach(r => { subjCount[r.course_id] = (subjCount[r.course_id] || 0) + 1; });
             const coursesBox = document.getElementById('courses-box');
-            if (courses.length === 0) {
-                coursesBox.innerHTML = `<div class="empty-state"><h3>No active courses</h3><p>You're not enrolled in an active course yet. Please contact the office.</p></div>`;
+            if (coursesRes.error) {
+                loadError('courses-box', 'your courses', coursesRes.error);
             } else {
-                coursesBox.innerHTML = `<div class="card-grid">${courses.map(c => `
-                    <div class="course-card" onclick="location.href='course.html?id=${encodeURIComponent(c.id)}'">
-                        <div class="cc-top" ${c.image_url ? `style="background:url('${esc(c.image_url)}') center/cover;"` : ''}>${c.image_url ? '' : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`}</div>
-                        <div class="cc-body">
-                            <div class="cc-title">${esc(c.name)}</div>
-                            <div class="cc-sub">${esc(c.description) || 'Your enrolled course'}</div>
-                            <div class="cc-meta">${subjCount[c.id] || 0} subject${(subjCount[c.id]||0)===1?'':'s'}</div>
-                        </div>
-                    </div>`).join('')}</div>`;
+                if (csRes.error) console.error('[dashboard] subject counts failed:', csRes.error);
+                const courses = coursesRes.data || [];
+                const subjCount = {};
+                (csRes.data || []).forEach(r => { subjCount[r.course_id] = (subjCount[r.course_id] || 0) + 1; });
+                if (courses.length === 0) {
+                    coursesBox.innerHTML = `<div class="empty-state"><h3>No active courses</h3><p>You're not enrolled in an active course yet. Please contact the office.</p></div>`;
+                } else {
+                    coursesBox.innerHTML = `<div class="card-grid">${courses.map(c => `
+                        <div class="course-card" onclick="location.href='course.html?id=${encodeURIComponent(c.id)}'">
+                            <div class="cc-top" ${c.image_url ? `style="background:url('${esc(c.image_url)}') center/cover;"` : ''}>${c.image_url ? '' : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`}</div>
+                            <div class="cc-body">
+                                <div class="cc-title">${esc(c.name)}</div>
+                                <div class="cc-sub">${esc(c.description) || 'Your enrolled course'}</div>
+                                <div class="cc-meta">${subjCount[c.id] || 0} subject${(subjCount[c.id]||0)===1?'':'s'}</div>
+                            </div>
+                        </div>`).join('')}</div>`;
+                }
             }
 
             // Schedule
-            const roomName = {}; (roomsRes.data || []).forEach(r => roomName[r.id] = r.name);
-            const sched = schedRes.data || [];
             const schedBox = document.getElementById('schedule-box');
-            if (sched.length === 0) {
-                schedBox.innerHTML = `<div class="empty-state" style="padding:28px;"><p>Nothing scheduled coming up.</p></div>`;
+            if (schedRes.error) {
+                loadError('schedule-box', 'your schedule', schedRes.error);
             } else {
-                schedBox.innerHTML = sched.map(e => {
-                    const d = new Date(e.entry_date);
-                    const day = d.toLocaleDateString('en-GB',{day:'2-digit'});
-                    const mon = d.toLocaleDateString('en-GB',{month:'short'});
-                    const tag = e.room_id ? `<span class="badge-subject">${esc(roomName[e.room_id] || 'Subject')}</span>` : `<span class="badge-general">General</span>`;
-                    return `<div class="sched">
-                        <div class="s-date"><div class="d">${day}</div><div class="m">${mon}</div></div>
-                        <div class="s-body"><div class="s-topic">${esc(e.topic)}</div><div class="s-sub">${tag}${e.details ? ' · ' + esc(e.details) : ''}</div></div>
-                    </div>`;
-                }).join('');
+                if (roomsRes.error) console.error('[dashboard] subject names failed:', roomsRes.error);
+                const roomName = {}; (roomsRes.data || []).forEach(r => roomName[r.id] = r.name);
+                const sched = schedRes.data || [];
+                if (sched.length === 0) {
+                    schedBox.innerHTML = `<div class="empty-state" style="padding:28px;"><p>Nothing scheduled coming up.</p></div>`;
+                } else {
+                    schedBox.innerHTML = sched.map(e => {
+                        const d = new Date(e.entry_date);
+                        const day = d.toLocaleDateString('en-GB',{day:'2-digit'});
+                        const mon = d.toLocaleDateString('en-GB',{month:'short'});
+                        const tag = e.room_id ? `<span class="badge-subject">${esc(roomName[e.room_id] || 'Subject')}</span>` : `<span class="badge-general">General</span>`;
+                        return `<div class="sched">
+                            <div class="s-date"><div class="d">${day}</div><div class="m">${mon}</div></div>
+                            <div class="s-body"><div class="s-topic">${esc(e.topic)}</div><div class="s-sub">${tag}${e.details ? ' · ' + esc(e.details) : ''}</div></div>
+                        </div>`;
+                    }).join('');
+                }
             }
 
             // Announcements
-            const anns = annRes.data || [];
             const annBox = document.getElementById('ann-box');
-            if (anns.length === 0) {
-                annBox.innerHTML = `<div class="empty-state" style="padding:28px;"><p>No announcements right now.</p></div>`;
+            if (annRes.error) {
+                loadError('ann-box', 'announcements', annRes.error);
             } else {
-                annBox.innerHTML = anns.map(a => `
-                    <div class="notice">
-                        <div class="n-head"><div class="n-title">${esc(a.title)}</div><div class="n-date">${fmtDateTime(a.posted_at)}</div></div>
-                        <div class="n-body">${esc(a.body)}</div>
-                    </div>`).join('');
+                const anns = annRes.data || [];
+                if (anns.length === 0) {
+                    annBox.innerHTML = `<div class="empty-state" style="padding:28px;"><p>No announcements right now.</p></div>`;
+                } else {
+                    annBox.innerHTML = anns.map(a => `
+                        <div class="notice">
+                            <div class="n-head"><div class="n-title">${esc(a.title)}</div><div class="n-date">${fmtDateTime(a.posted_at)}</div></div>
+                            <div class="n-body">${esc(a.body)}</div>
+                        </div>`).join('');
+                }
             }
         })();
     </script>

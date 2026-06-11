@@ -24,23 +24,33 @@
             const courseId = new URLSearchParams(location.search).get('id');
             if (!courseId) { location.href = 'courses.html'; return; }
 
-            const { data: course } = await db.from('courses').select('id, name').eq('id', courseId).single();
+            const errBox = (what) => `<div class="empty-state"><h3 style="color:var(--red)">Couldn't load ${what}</h3><p>Please refresh the page. If it keeps happening, contact the office.</p></div>`;
+
+            const { data: course, error: courseErr } = await db.from('courses').select('id, name').eq('id', courseId).single();
+            if (courseErr && courseErr.code !== 'PGRST116') {  // PGRST116 = no rows (not enrolled / not found) → redirect; otherwise a real failure
+                console.error('[course] course failed to load:', courseErr);
+                renderLayout('courses', 'Course', '', auth.profile);
+                document.getElementById('page-content').innerHTML = errBox('this course') + `<a class="btn btn-ghost" href="courses.html" style="margin-top:12px;">← All Courses</a>`;
+                return;
+            }
             if (!course) { location.href = 'courses.html'; return; }
             renderLayout('courses', course.name, 'Subjects in this course', auth.profile);
 
             document.getElementById('page-content').innerHTML = `
                 <a class="btn btn-ghost" href="courses.html" style="margin-bottom:18px;">← All Courses</a>
                 <div id="box"><div class="loader">Loading subjects…</div></div>`;
+            const box = document.getElementById('box');
 
-            const { data: cs } = await db.from('course_subjects').select('room_id').eq('course_id', courseId);
+            const { data: cs, error: csErr } = await db.from('course_subjects').select('room_id').eq('course_id', courseId);
+            if (csErr) { console.error('[course] subjects failed to load:', csErr); box.innerHTML = errBox('subjects'); return; }
             const roomIds = (cs || []).map(r => r.room_id);
             let rooms = [];
             if (roomIds.length) {
-                const { data } = await db.from('rooms').select('id, name, description, is_visible, image_url').in('id', roomIds).order('order_index', { ascending: true });
+                const { data, error: roomsErr } = await db.from('rooms').select('id, name, description, is_visible, image_url').in('id', roomIds).order('order_index', { ascending: true });
+                if (roomsErr) { console.error('[course] rooms failed to load:', roomsErr); box.innerHTML = errBox('subjects'); return; }
                 rooms = (data || []).filter(r => r.is_visible);  // hide subjects the teacher hid
             }
 
-            const box = document.getElementById('box');
             if (rooms.length === 0) {
                 box.innerHTML = `<div class="empty-state"><h3>No subjects available</h3><p>Your teacher hasn't released subjects for this course yet.</p></div>`;
                 return;

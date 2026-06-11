@@ -28,11 +28,17 @@
                 db.from('courses').select('id, name, description, image_url').order('name', { ascending: true }),
                 db.from('course_subjects').select('course_id, room_id')
             ]);
+            const box = document.getElementById('box');
+            if (cRes.error) {
+                console.error('[courses] courses failed to load:', cRes.error);
+                box.innerHTML = `<div class="empty-state"><h3 style="color:var(--red)">Couldn't load your courses</h3><p>Please refresh the page. If it keeps happening, contact the office.</p></div>`;
+                return;
+            }
+            if (csRes.error) console.error('[courses] subject counts failed to load:', csRes.error);  // non-critical
             const courses = cRes.data || [];
             const subjCount = {};
             (csRes.data || []).forEach(r => { subjCount[r.course_id] = (subjCount[r.course_id] || 0) + 1; });
 
-            const box = document.getElementById('box');
             if (courses.length === 0) {
                 box.innerHTML = `<div class="empty-state"><h3>No active courses</h3><p>You're not enrolled in an active course yet. Please contact the office.</p></div>`;
                 return;

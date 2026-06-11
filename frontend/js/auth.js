@@ -17,11 +17,23 @@ async function requireStudent() {
     const { data: { session } } = await db.auth.getSession();
     if (!session) { window.location.href = 'index.html'; return null; }
 
-    const { data: profile } = await db
+    const { data: profile, error: profErr } = await db
         .from('profiles')
         .select('role, full_name, avatar_url, status, expiry_date')
         .eq('id', session.user.id)
         .single();
+
+    // A failed lookup is NOT proof the account is inactive — never sign out on a transient error.
+    if (profErr) {
+        console.error('[auth] could not verify account:', profErr);
+        const el = document.getElementById('app-layout') || document.body;
+        el.innerHTML = `<div style="max-width:440px;margin:120px auto;text-align:center;font-family:'Inter',sans-serif;color:#1e293b;padding:0 20px;">
+            <h2 style="margin-bottom:10px;">Connection problem</h2>
+            <p style="color:#64748b;">We couldn't verify your account right now. Please refresh — if it keeps happening, contact the office.</p>
+            <button onclick="location.reload()" style="margin-top:18px;padding:10px 20px;border:none;border-radius:8px;background:#1e3a8a;color:#fff;font-weight:600;cursor:pointer;">Refresh</button>
+        </div>`;
+        return null;
+    }
 
     if (!_isStudentActive(profile)) {
         await _endSession();
@@ -48,7 +60,8 @@ function _startStudentWatch(userId) {
         try {
             const { data: { session } } = await db.auth.getSession();
             if (!session) { window.location.href = 'index.html'; return; }
-            const { data: p } = await db.from('profiles').select('role, status, expiry_date').eq('id', session.user.id).single();
+            const { data: p, error: pErr } = await db.from('profiles').select('role, status, expiry_date').eq('id', session.user.id).single();
+            if (pErr) { console.error('[auth] account watch check failed (will retry):', pErr); return; }  // transient — don't kick on a blip
             if (!_isStudentActive(p)) {
                 await _endSession();
                 await db.auth.signOut();

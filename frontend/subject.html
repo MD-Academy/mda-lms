@@ -32,6 +32,7 @@
         function fmtDate(d){ return d ? new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : ''; }
 
         const LOCK = '<span class="lock-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Not released yet</span>';
+        const secErr = (what) => `<div class="empty-state" style="padding:24px;"><h3 style="color:var(--red)">Couldn't load ${what}</h3><p>Please refresh. If it keeps happening, contact the office.</p></div>`;
 
         function openVideo(url, title) {
             document.getElementById('vid-title').textContent = title || 'Video';
@@ -59,7 +60,13 @@
             const roomId = new URLSearchParams(location.search).get('id');
             if (!roomId) { location.href = 'courses.html'; return; }
 
-            const { data: room } = await db.from('rooms').select('id, name, description, is_visible').eq('id', roomId).single();
+            const { data: room, error: roomErr } = await db.from('rooms').select('id, name, description, is_visible').eq('id', roomId).single();
+            if (roomErr && roomErr.code !== 'PGRST116') {  // PGRST116 = no rows (hidden/not enrolled) → redirect; anything else is a real failure
+                console.error('[subject] subject failed to load:', roomErr);
+                renderLayout('courses', 'Subject', '', auth.profile);
+                document.getElementById('page-content').innerHTML = secErr('this subject') + `<a class="btn btn-ghost" href="courses.html" style="margin-top:12px;">← Back to courses</a>`;
+                return;
+            }
             if (!room || !room.is_visible) { location.href = 'courses.html'; return; }
             renderLayout('courses', room.name, 'Lessons, lectures & materials', auth.profile);
 
@@ -79,44 +86,60 @@
             ]);
 
             // Lessons (informational)
-            const lessons = lRes.data || [];
-            document.getElementById('lessons-box').innerHTML = lessons.length === 0
-                ? `<div class="empty-state" style="padding:24px;"><p>No lessons yet.</p></div>`
-                : lessons.map(l => `
-                    <div class="item-row ${l.is_visible ? '' : 'locked'}">
-                        <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
-                        <div class="ir-body"><div class="ir-title">${esc(l.title)}</div>${l.description ? `<div class="ir-sub">${esc(l.description)}</div>` : ''}</div>
-                        ${l.is_visible ? '' : LOCK}
-                    </div>`).join('');
+            const lessons = lRes.error ? [] : (lRes.data || []);
+            if (lRes.error) {
+                console.error('[subject] lessons failed to load:', lRes.error);
+                document.getElementById('lessons-box').innerHTML = secErr('lessons');
+            } else {
+                document.getElementById('lessons-box').innerHTML = lessons.length === 0
+                    ? `<div class="empty-state" style="padding:24px;"><p>No lessons yet.</p></div>`
+                    : lessons.map(l => `
+                        <div class="item-row ${l.is_visible ? '' : 'locked'}">
+                            <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
+                            <div class="ir-body"><div class="ir-title">${esc(l.title)}</div>${l.description ? `<div class="ir-sub">${esc(l.description)}</div>` : ''}</div>
+                            ${l.is_visible ? '' : LOCK}
+                        </div>`).join('');
+            }
 
             // Video Lectures
-            const lectures = recRes.data || [];
-            document.getElementById('lectures-box').innerHTML = lectures.length === 0
-                ? `<div class="empty-state" style="padding:24px;"><p>No video lectures yet.</p></div>`
-                : lectures.map(r => `
-                    <div class="item-row ${r.is_visible ? '' : 'locked'}">
-                        <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
-                        <div class="ir-body"><div class="ir-title">${esc(r.title)}</div><div class="ir-sub">${esc(r.professor)} · ${fmtDate(r.recorded_date)}</div></div>
-                        ${r.is_visible ? `<button class="btn btn-primary js-play" data-url="${esc(r.aws_url)}" data-title="${esc(r.title)}">▶ Play</button>` : LOCK}
-                    </div>`).join('');
+            if (recRes.error) {
+                console.error('[subject] video lectures failed to load:', recRes.error);
+                document.getElementById('lectures-box').innerHTML = secErr('video lectures');
+            } else {
+                const lectures = recRes.data || [];
+                document.getElementById('lectures-box').innerHTML = lectures.length === 0
+                    ? `<div class="empty-state" style="padding:24px;"><p>No video lectures yet.</p></div>`
+                    : lectures.map(r => `
+                        <div class="item-row ${r.is_visible ? '' : 'locked'}">
+                            <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
+                            <div class="ir-body"><div class="ir-title">${esc(r.title)}</div><div class="ir-sub">${esc(r.professor)} · ${fmtDate(r.recorded_date)}</div></div>
+                            ${r.is_visible ? `<button class="btn btn-primary js-play" data-url="${esc(r.aws_url)}" data-title="${esc(r.title)}">▶ Play</button>` : LOCK}
+                        </div>`).join('');
+            }
 
             // Materials & Notes
-            const mats = (mRes.data || []).filter(m => (m.category === 'note' ? 'note' : 'material') === 'material');
-            const notes = (mRes.data || []).filter(m => m.category === 'note');
-            const matHtml = list => list.length === 0
-                ? `<div class="empty-state" style="padding:24px;"><p>Nothing here yet.</p></div>`
-                : list.map(m => `
-                    <div class="item-row ${m.is_visible ? '' : 'locked'}">
-                        <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
-                        <div class="ir-body"><div class="ir-title">${esc(m.title)}</div><div class="ir-sub">${esc((m.type||'file').toUpperCase())}</div></div>
-                        ${m.is_visible
-                            ? (m.external_url
-                                ? `<button class="btn btn-primary js-extlink" data-url="${esc(m.external_url)}">Open ↗</button>`
-                                : `<button class="btn btn-primary js-read" data-path="${esc(m.storage_path)}" data-title="${esc(m.title)}">Read</button>`)
-                            : LOCK}
-                    </div>`).join('');
-            document.getElementById('materials-box').innerHTML = matHtml(mats);
-            document.getElementById('notes-box').innerHTML = matHtml(notes);
+            if (mRes.error) {
+                console.error('[subject] study materials failed to load:', mRes.error);
+                document.getElementById('materials-box').innerHTML = secErr('study materials');
+                document.getElementById('notes-box').innerHTML = secErr('notes');
+            } else {
+                const mats = (mRes.data || []).filter(m => (m.category === 'note' ? 'note' : 'material') === 'material');
+                const notes = (mRes.data || []).filter(m => m.category === 'note');
+                const matHtml = list => list.length === 0
+                    ? `<div class="empty-state" style="padding:24px;"><p>Nothing here yet.</p></div>`
+                    : list.map(m => `
+                        <div class="item-row ${m.is_visible ? '' : 'locked'}">
+                            <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+                            <div class="ir-body"><div class="ir-title">${esc(m.title)}</div><div class="ir-sub">${esc((m.type||'file').toUpperCase())}</div></div>
+                            ${m.is_visible
+                                ? (m.external_url
+                                    ? `<button class="btn btn-primary js-extlink" data-url="${esc(m.external_url)}">Open ↗</button>`
+                                    : `<button class="btn btn-primary js-read" data-path="${esc(m.storage_path)}" data-title="${esc(m.title)}">Read</button>`)
+                                : LOCK}
+                        </div>`).join('');
+                document.getElementById('materials-box').innerHTML = matHtml(mats);
+                document.getElementById('notes-box').innerHTML = matHtml(notes);
+            }
 
             document.getElementById('page-content').addEventListener('click', e => {
                 const play = e.target.closest('.js-play');
@@ -132,7 +155,12 @@
             const lessonIds = lessons.map(l => l.id);
             let quizzes = [];
             if (lessonIds.length) {
-                const { data } = await db.from('quizzes').select('id, lesson_id').in('lesson_id', lessonIds);
+                const { data, error: qErr } = await db.from('quizzes').select('id, lesson_id').in('lesson_id', lessonIds);
+                if (qErr) {
+                    console.error('[subject] quizzes failed to load:', qErr);
+                    document.getElementById('quizzes-box').innerHTML = secErr('quizzes');
+                    return;
+                }
                 quizzes = data || [];
             }
             document.getElementById('quizzes-box').innerHTML = quizzes.length === 0
