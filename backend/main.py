@@ -475,6 +475,24 @@ def _to_date(val):
         return None
 
 
+def _months_ago(n: int) -> date:
+    """First day of the month n months before today (a clean cleanup threshold)."""
+    total = date.today().year * 12 + (date.today().month - 1) - n
+    y, m = divmod(total, 12)
+    return date(y, m + 1, 1)
+
+
+def _purge_old_announcements():
+    """Hard-delete announcements older than 4 months (one course length)."""
+    cutoff = _months_ago(4).isoformat()
+    try:
+        res = supabase.table("announcements").delete().lt("posted_at", cutoff).execute()
+        return len(res.data or [])
+    except Exception as e:
+        logger.error("Announcement purge failed: %s", e)
+        return 0
+
+
 def _run_daily_reminders():
     """Inactivity (7/15/30d) + one-time expiry (<=7d) reminders. Idempotent via email_log."""
     today = date.today()
@@ -551,7 +569,9 @@ def cron_daily_emails(request: Request):
     provided = request.headers.get("x-cron-key") or request.query_params.get("key")
     if not CRON_SECRET or provided != CRON_SECRET:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    return _run_daily_reminders()
+    result = _run_daily_reminders()
+    result["announcements_purged"] = _purge_old_announcements()
+    return result
 
 
 # ── ADMIN / SUPERADMIN MANAGEMENT (superadmin only) ──────────
