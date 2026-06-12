@@ -57,20 +57,35 @@
             const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='340' height='210'><text x='10' y='110' transform='rotate(-28 170 105)' fill='rgba(20,30,60,0.10)' font-size='15' font-family='sans-serif'>${ident.replace(/[<>&]/g,'')}</text></svg>`;
             document.getElementById('watermark').style.backgroundImage = `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
 
-            // Get a short-lived signed URL from the backend (verifies access + visibility).
+            const statusEl = () => document.getElementById('status');
+            const setStatus = (t) => { const s = statusEl(); if (s) s.innerHTML = t; };
+
+            // Watchdog: if nothing has rendered after 45s (e.g. the server is waking up), surface it.
+            let done = false;
+            const watchdog = setTimeout(() => {
+                if (!done) setStatus('Still loading… the server may be waking up.<br>Please wait a few seconds and <a href="#" onclick="location.reload();return false;" style="color:#8ab4ff;">refresh</a>.');
+            }, 45000);
+
+            // 1) Signed URL from the backend (verifies access + visibility).
+            setStatus('Verifying access…');
             let signedUrl;
             try {
                 const res = await apiRequest('POST', '/materials/signed-url/student', { storage_path: path });
                 signedUrl = res.signed_url;
+                if (!signedUrl) throw new Error('No file URL was returned.');
             } catch (err) {
-                document.getElementById('status').textContent = `Could not open this material: ${err.message}`;
+                clearTimeout(watchdog); done = true;
+                console.error('[viewer] signed-url failed:', err);
+                setStatus(`Could not open this material: ${esc(err.message)}`);
                 return;
             }
 
-            // Render with PDF.js into canvases (no download link, no native PDF toolbar).
+            // 2) Render with PDF.js into canvases (no download link, no native toolbar).
+            setStatus('Loading the document…');
             try {
+                if (typeof pdfjsLib === 'undefined') throw new Error('PDF viewer failed to load. Please refresh.');
                 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-                const pdf = await pdfjsLib.getDocument(signedUrl).promise;
+                const pdf = await pdfjsLib.getDocument({ url: signedUrl }).promise;
                 const container = document.getElementById('pdf-container');
                 container.innerHTML = '';
                 const width = Math.min(900, window.innerWidth - 24);
@@ -85,10 +100,14 @@
                     container.appendChild(canvas);
                     await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
                 }
+                done = true; clearTimeout(watchdog);
             } catch (err) {
-                document.getElementById('pdf-container').innerHTML = `<div id="status">This file couldn't be displayed in the reader.<br>(${(err && err.message) || 'error'})</div>`;
+                done = true; clearTimeout(watchdog);
+                console.error('[viewer] PDF render failed:', err);
+                document.getElementById('pdf-container').innerHTML = `<div id="status">This file couldn't be displayed in the reader.<br>(${esc((err && err.message) || 'error')})<br><br><a href="#" onclick="location.reload();return false;" style="color:#8ab4ff;">Refresh to retry</a></div>`;
             }
         })();
+        function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
     </script>
 </body>
 </html>
