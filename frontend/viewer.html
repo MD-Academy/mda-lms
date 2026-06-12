@@ -63,8 +63,8 @@
             // Watchdog: if nothing has rendered after 45s (e.g. the server is waking up), surface it.
             let done = false;
             const watchdog = setTimeout(() => {
-                if (!done) setStatus('Still loading… the server may be waking up.<br>Please wait a few seconds and <a href="#" onclick="location.reload();return false;" style="color:#8ab4ff;">refresh</a>.');
-            }, 45000);
+                if (!done) setStatus('Waking up the secure reader…<br>The first file opened after a quiet period can take up to a minute — please hold on.');
+            }, 12000);
 
             // 1) Signed URL from the backend (verifies access + visibility).
             setStatus('Verifying access…');
