@@ -186,6 +186,7 @@ class NotifPrefsRequest(BaseModel):
 class NotifyAnnouncementRequest(BaseModel):
     title: str
     body: str
+    course_id: Optional[str] = None   # None = all students; else only that course's enrolled
 
 
 class NotifyScheduleRequest(BaseModel):
@@ -193,6 +194,7 @@ class NotifyScheduleRequest(BaseModel):
     entry_date: str
     subject_name: Optional[str] = None
     details: Optional[str] = None
+    course_id: Optional[str] = None
 
 
 class RequestResetRequest(BaseModel):
@@ -386,15 +388,24 @@ def reset_password(user_id: str, _=Depends(get_superadmin_user)):
 
 # ── EMAIL NOTIFICATIONS (Phase 2) ────────────────────────────
 
-def _active_subscribed_students(pref_column: str):
-    """Active, non-expired students who opted in to `pref_column`, with a valid email."""
+def _active_subscribed_students(pref_column: str, course_id: str = None):
+    """Active, non-expired students opted in to `pref_column`, with a valid email.
+    If course_id is given, restrict to students enrolled in that course."""
     today = date.today().isoformat()
+    enrolled_ids = None
+    if course_id:
+        er = supabase.table("course_enrollments").select("student_id").eq("course_id", course_id).execute().data or []
+        enrolled_ids = {e["student_id"] for e in er}
+        if not enrolled_ids:
+            return []
     rows = (supabase.table("profiles")
-            .select("full_name, email, status, expiry_date")
+            .select("id, full_name, email, status, expiry_date")
             .eq("role", "student").eq("status", "active").eq(pref_column, True)
             .execute().data or [])
     out = []
     for r in rows:
+        if enrolled_ids is not None and r.get("id") not in enrolled_ids:
+            continue  # not in the targeted course
         exp = r.get("expiry_date")
         if exp and exp < today:
             continue  # expired → suppress
@@ -417,7 +428,7 @@ def set_notification_prefs(body: NotifPrefsRequest, authorization: str = Header(
 @app.post("/admin/notify/announcement")
 def notify_announcement(body: NotifyAnnouncementRequest, _=Depends(get_admin_user)):
     """Email subscribed students that a new announcement was posted."""
-    students = _active_subscribed_students("notify_announcements")
+    students = _active_subscribed_students("notify_announcements", body.course_id)
     messages = []
     for s in students:
         subject, html = emails.announcement_email(s.get("full_name"), body.title, body.body)
@@ -429,7 +440,7 @@ def notify_announcement(body: NotifyAnnouncementRequest, _=Depends(get_admin_use
 @app.post("/admin/notify/schedule")
 def notify_schedule(body: NotifyScheduleRequest, _=Depends(get_admin_user)):
     """Email subscribed students that a new session was scheduled."""
-    students = _active_subscribed_students("notify_schedule")
+    students = _active_subscribed_students("notify_schedule", body.course_id)
     messages = []
     for s in students:
         subject, html = emails.schedule_email(s.get("full_name"), body.topic, body.entry_date,

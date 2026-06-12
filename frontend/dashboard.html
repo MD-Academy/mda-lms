@@ -58,9 +58,13 @@
                 db.from('courses').select('id, name, description, expires_at, image_url').order('name', { ascending: true }),
                 db.from('course_subjects').select('course_id, room_id'),
                 db.from('rooms').select('id, name'),
-                db.from('schedule_entries').select('id, room_id, entry_date, topic, details').gte('entry_date', todayIso).order('entry_date', { ascending: true }).limit(8),
-                db.from('announcements').select('id, title, body, posted_at').order('posted_at', { ascending: false }).limit(5)
+                db.from('schedule_entries').select('id, room_id, course_id, entry_date, topic, details').gte('entry_date', todayIso).order('entry_date', { ascending: true }).limit(40),
+                db.from('announcements').select('id, title, body, course_id, posted_at').order('posted_at', { ascending: false }).limit(30)
             ]);
+
+            // What this student is allowed to see: their enrolled courses + the subjects within them.
+            const myCourseIds = new Set((coursesRes.data || []).map(c => c.id));
+            const mySubjectIds = new Set((csRes.data || []).map(r => r.room_id));
 
             // Courses
             const coursesBox = document.getElementById('courses-box');
@@ -93,7 +97,12 @@
             } else {
                 if (roomsRes.error) console.error('[dashboard] subject names failed:', roomsRes.error);
                 const roomName = {}; (roomsRes.data || []).forEach(r => roomName[r.id] = r.name);
-                const sched = schedRes.data || [];
+                // Only entries for everyone, my courses, or my subjects.
+                const sched = (schedRes.data || []).filter(e =>
+                    (!e.course_id && !e.room_id) ||
+                    (e.course_id && myCourseIds.has(e.course_id)) ||
+                    (e.room_id && mySubjectIds.has(e.room_id))
+                ).slice(0, 8);
                 if (sched.length === 0) {
                     schedBox.innerHTML = `<div class="empty-state" style="padding:28px;"><p>Nothing scheduled coming up.</p></div>`;
                 } else {
@@ -115,7 +124,8 @@
             if (annRes.error) {
                 loadError('ann-box', 'announcements', annRes.error);
             } else {
-                const anns = annRes.data || [];
+                // Only general announcements or ones for my enrolled courses.
+                const anns = (annRes.data || []).filter(a => !a.course_id || myCourseIds.has(a.course_id)).slice(0, 5);
                 if (anns.length === 0) {
                     annBox.innerHTML = `<div class="empty-state" style="padding:28px;"><p>No announcements right now.</p></div>`;
                 } else {
