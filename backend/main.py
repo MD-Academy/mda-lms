@@ -783,7 +783,7 @@ def _require_active_student(authorization: str):
 
 
 def _verify_exam_access(user_id: str, exam_id: str):
-    ex = supabase.table("exams").select("id, title, description, type, pass_threshold, time_limit_minutes, is_visible").eq("id", exam_id).limit(1).execute().data
+    ex = supabase.table("exams").select("id, title, description, type, pass_threshold, time_limit_minutes, max_attempts, is_visible").eq("id", exam_id).limit(1).execute().data
     if not ex or not ex[0].get("is_visible"):
         raise HTTPException(status_code=403, detail="This exam isn't available.")
     e = ex[0]
@@ -806,13 +806,19 @@ def _verify_exam_access(user_id: str, exam_id: str):
 def student_exam_questions(body: ExamQReq, authorization: str = Header(...)):
     user = _require_active_student(authorization)
     e = _verify_exam_access(user.id, body.exam_id)
+    prev = supabase.table("exam_attempts").select("score, passed, attempts").eq("exam_id", body.exam_id).eq("student_id", user.id).limit(1).execute().data
+    used = (prev[0].get("attempts") or 0) if prev else 0
+    max_a = e.get("max_attempts")
+    if max_a and used >= max_a:
+        raise HTTPException(status_code=403, detail=f"You've used all {max_a} attempt(s) for this exam.")
     qs = supabase.table("exam_questions").select("id, question_text, options_json, order_index").eq("exam_id", body.exam_id).order("order_index").execute().data or []
-    prev = supabase.table("exam_attempts").select("score, passed").eq("exam_id", body.exam_id).eq("student_id", user.id).limit(1).execute().data
     return {
         "exam": {"id": e["id"], "title": e["title"], "description": e.get("description"),
-                 "pass_threshold": e["pass_threshold"], "time_limit_minutes": e.get("time_limit_minutes")},
+                 "pass_threshold": e["pass_threshold"], "time_limit_minutes": e.get("time_limit_minutes"),
+                 "max_attempts": max_a},
         "questions": qs,
-        "previous": prev[0] if prev else None
+        "previous": prev[0] if prev else None,
+        "attempts_used": used
     }
 
 
@@ -845,14 +851,21 @@ def student_exam_submit(body: ExamSubmitReq, authorization: str = Header(...)):
         "answers_json": body.answers, "wrong_questions": wrong,
         "completed_at": datetime.utcnow().isoformat()
     }
-    existing = supabase.table("exam_attempts").select("id").eq("exam_id", body.exam_id).eq("student_id", user.id).limit(1).execute().data
+    existing = supabase.table("exam_attempts").select("id, attempts").eq("exam_id", body.exam_id).eq("student_id", user.id).limit(1).execute().data
+    used = (existing[0].get("attempts") or 0) if existing else 0
+    max_a = e.get("max_attempts")
+    if max_a and used >= max_a:
+        raise HTTPException(status_code=403, detail=f"You've used all {max_a} attempt(s) for this exam.")
     if existing:
+        # Last score wins (overwrites), attempt count increments.
+        row["attempts"] = used + 1
         supabase.table("exam_attempts").update(row).eq("id", existing[0]["id"]).execute()
     else:
-        supabase.table("exam_attempts").insert({**row, "exam_id": body.exam_id, "student_id": user.id}).execute()
+        supabase.table("exam_attempts").insert({**row, "exam_id": body.exam_id, "student_id": user.id, "attempts": 1}).execute()
 
     return {"score": score, "passed": passed, "total": total, "correct": correct,
-            "wrong": wrong, "pass_threshold": e["pass_threshold"]}
+            "wrong": wrong, "pass_threshold": e["pass_threshold"],
+            "attempts_used": used + 1, "max_attempts": max_a}
 
 
 # ── STUDENT PER-LESSON QUIZZES (10/10 to pass, with cooldown) ──

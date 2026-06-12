@@ -26,8 +26,8 @@
             document.getElementById('page-content').innerHTML = `<div id="box"><div class="loader">Loading exams…</div></div>`;
 
             const [exRes, atRes] = await Promise.all([
-                db.from('exams').select('id, title, description, type, pass_threshold, storage_path, is_visible').order('created_at', { ascending: false }),
-                db.from('exam_attempts').select('exam_id, score, passed')
+                db.from('exams').select('id, title, description, type, pass_threshold, storage_path, max_attempts, is_visible').order('created_at', { ascending: false }),
+                db.from('exam_attempts').select('exam_id, score, passed, attempts')
             ]);
 
             const box = document.getElementById('box');
@@ -54,15 +54,26 @@
                         ? `<span class="badge-subject" style="background:#dcfce7;color:#15803d;">Passed · ${a.score}%</span>`
                         : `<span class="badge-general" style="background:#fee2e2;color:#b91c1c;">Not passed · ${a.score}%</span>`;
                 }
-                const action = e.type === 'manual'
-                    ? `<button class="btn btn-primary" onclick="location.href='take-exam.html?id=${encodeURIComponent(e.id)}'">${a ? 'Retake' : 'Start'}</button>`
-                    : `<button class="btn btn-primary" onclick="location.href='viewer.html?path=${encodeURIComponent(e.storage_path||'')}&title=${encodeURIComponent(e.title)}'">Open Paper</button>`;
+                const used = (a && a.attempts) || 0;
+                const max = e.max_attempts || 0;
+                const noneLeft = max && used >= max;
+                let action;
+                if (e.type === 'manual') {
+                    action = noneLeft
+                        ? `<button class="btn btn-ghost" disabled style="opacity:.55;cursor:default;">Completed</button>`
+                        : `<button class="btn btn-primary" onclick="location.href='take-exam.html?id=${encodeURIComponent(e.id)}'">${a ? 'Retake' : 'Start'}</button>`;
+                } else {
+                    action = `<button class="btn btn-primary" onclick="location.href='viewer.html?path=${encodeURIComponent(e.storage_path||'')}&title=${encodeURIComponent(e.title)}'">Open Paper</button>`;
+                }
+                const attemptsNote = e.type === 'manual'
+                    ? (max ? ` · ${noneLeft ? 'no attempts left' : (max - used) + ' of ' + max + ' attempt' + (max === 1 ? '' : 's') + ' left'}` : ' · unlimited tries')
+                    : '';
                 return `
                     <div class="item-row">
                         <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
                         <div class="ir-body">
                             <div class="ir-title">${esc(e.title)}</div>
-                            <div class="ir-sub">${e.type === 'manual' ? 'Multiple-choice' : 'PDF paper'} · pass ${e.pass_threshold}% ${badge ? '· ' : ''}${badge}</div>
+                            <div class="ir-sub">${e.type === 'manual' ? 'Multiple-choice' : 'PDF paper'} · pass ${e.pass_threshold}%${attemptsNote} ${badge ? '· ' : ''}${badge}</div>
                         </div>
                         ${action}
                     </div>`;
