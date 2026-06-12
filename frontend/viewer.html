@@ -52,9 +52,9 @@
             document.getElementById('rt-title').textContent = title;
             if (!path) { document.getElementById('status').textContent = 'No file specified.'; return; }
 
-            // Watermark with the student's identity (traceable, discourages leaking).
-            const ident = `${auth.profile.full_name || 'Student'} · ${auth.session.user.email || ''}`;
-            const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='340' height='210'><text x='10' y='110' transform='rotate(-28 170 105)' fill='rgba(20,30,60,0.10)' font-size='15' font-family='sans-serif'>${ident.replace(/[<>&]/g,'')}</text></svg>`;
+            // Gentle ownership watermark tiled across the reading area (same for everyone).
+            const wmText = "Property of Medical Doctor Academy &amp; Debrecen-Eilat Medical Faculty";
+            const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='470' height='168'><text x='16' y='96' transform='rotate(-20 235 84)' fill='rgba(20,30,60,0.11)' font-size='10' font-family='sans-serif'>${wmText}</text></svg>`;
             document.getElementById('watermark').style.backgroundImage = `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
 
             const statusEl = () => document.getElementById('status');
