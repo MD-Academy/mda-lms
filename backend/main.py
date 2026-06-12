@@ -148,6 +148,7 @@ class CreateStudentRequest(BaseModel):
     email: str
     password: Optional[str] = None
     expiry_date: Optional[str] = None
+    course_id: Optional[str] = None   # optional: enrol into this course on creation
 
 
 class CreateAdminRequest(BaseModel):
@@ -164,6 +165,7 @@ class BulkStudentEntry(BaseModel):
 class BulkCreateRequest(BaseModel):
     students: List[BulkStudentEntry]
     expiry_date: Optional[str] = None
+    course_id: Optional[str] = None   # optional: enrol the whole batch into this course
 
 
 class UpdateStudentRequest(BaseModel):
@@ -241,6 +243,13 @@ def create_student(body: CreateStudentRequest, _=Depends(get_superadmin_user)):
             detail=f"User was created in auth but profile update failed: {str(e)}"
         )
 
+    # Optionally enrol into a course right away. Never break creation if this fails.
+    if body.course_id:
+        try:
+            supabase.table("course_enrollments").insert({"course_id": body.course_id, "student_id": user_id}).execute()
+        except Exception as e:
+            logger.error("Auto-enrol failed for %s into %s: %s", user_id, body.course_id, e)
+
     # Welcome email with login details. Never let a mail failure break creation —
     # the admin still gets the credentials in the response to hand over manually.
     subject, html = emails.welcome_email(body.full_name, body.email, password, body.expiry_date)
@@ -300,6 +309,12 @@ def bulk_create_students(body: BulkCreateRequest, _=Depends(get_superadmin_user)
                 update_data["expiry_date"] = body.expiry_date
 
             supabase.table("profiles").upsert(update_data).execute()
+
+            if body.course_id:
+                try:
+                    supabase.table("course_enrollments").insert({"course_id": body.course_id, "student_id": user_id}).execute()
+                except Exception as e:
+                    logger.error("Auto-enrol failed for %s into %s: %s", user_id, body.course_id, e)
 
             subject, html = emails.welcome_email(entry.full_name, entry.email, password, body.expiry_date)
             email_sent = emails.send_email(entry.email, subject, html)
