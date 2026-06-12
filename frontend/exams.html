@@ -36,10 +36,18 @@
                 box.innerHTML = `<div class="empty-state"><h3 style="color:var(--red)">Couldn't load your exams</h3><p>Please refresh the page. If it keeps happening, contact the office.</p></div>`;
                 return;
             }
-            if (atRes.error) console.error('[exams] prior scores failed to load:', atRes.error);  // non-critical: exams still list, just without score badges
+            let atData = atRes.data;
+            if (atRes.error) {
+                console.error('[exams] prior scores failed to load:', atRes.error);
+                // Older DBs may not have the attempts column yet — fall back so badges/limits still work.
+                if (/attempts/i.test(atRes.error.message || '')) {
+                    const fb = await db.from('exam_attempts').select('exam_id, score, passed');
+                    if (!fb.error) atData = fb.data;
+                }
+            }
 
             const attempts = {};
-            (atRes.data || []).forEach(a => { attempts[a.exam_id] = a; });
+            (atData || []).forEach(a => { attempts[a.exam_id] = a; });
             const exams = (exRes.data || []).filter(e => e.is_visible);
 
             if (exams.length === 0) {
@@ -54,13 +62,14 @@
                         ? `<span class="badge-subject" style="background:#dcfce7;color:#15803d;">Passed · ${a.score}%</span>`
                         : `<span class="badge-general" style="background:#fee2e2;color:#b91c1c;">Not passed · ${a.score}%</span>`;
                 }
-                const used = (a && a.attempts) || 0;
+                // If there's any attempt row, count it as >=1 even if the attempts column is null.
+                const used = a ? (a.attempts ?? 1) : 0;
                 const max = e.max_attempts || 0;
                 const noneLeft = max && used >= max;
                 let action;
                 if (e.type === 'manual') {
                     action = noneLeft
-                        ? `<button class="btn btn-ghost" disabled style="opacity:.55;cursor:default;">Completed</button>`
+                        ? `<button class="btn btn-ghost" disabled style="opacity:.5;cursor:not-allowed;">Max attempts used</button>`
                         : `<button class="btn btn-primary" onclick="location.href='take-exam.html?id=${encodeURIComponent(e.id)}'">${a ? 'Retake' : 'Start'}</button>`;
                 } else {
                     action = `<button class="btn btn-primary" onclick="location.href='viewer.html?path=${encodeURIComponent(e.storage_path||'')}&title=${encodeURIComponent(e.title)}'">Open Paper</button>`;
