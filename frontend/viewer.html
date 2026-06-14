@@ -211,7 +211,9 @@
             try {
                 bookFlip = new St.PageFlip(document.getElementById('flipbook'), {
                     width: pageW, height: pageH, size: 'fixed',
-                    drawShadow: true, flippingTime: 600, showCover: false, usePortrait: true, mobileScrollSupport: false
+                    drawShadow: true, flippingTime: 600, showCover: false,
+                    usePortrait: window.innerWidth < 768,   // two-page book on desktop = leaf backs are the REAL next page (no duplicate); single page only on phones
+                    mobileScrollSupport: false
                 });
                 bookFlip.loadFromImages(RENDER_CACHE[renderW]);
             } catch (err) {
