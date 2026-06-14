@@ -93,12 +93,18 @@
             } else {
                 document.getElementById('lessons-box').innerHTML = lessons.length === 0
                     ? `<div class="empty-state" style="padding:24px;"><p>No lessons yet.</p></div>`
-                    : lessons.map(l => `
-                        <div class="item-row ${l.is_visible ? '' : 'locked'}">
-                            <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
-                            <div class="ir-body"><div class="ir-title">${esc(l.title)}</div>${l.description ? `<div class="ir-sub">${esc(l.description)}</div>` : ''}</div>
-                            ${l.is_visible ? '' : LOCK}
-                        </div>`).join('');
+                    : lessons.map(l => l.is_visible
+                        ? `<div style="padding:14px 6px; border-bottom:1px solid var(--border);">
+                               <h2 style="font-size:17px; font-weight:700; color:var(--navy-800); margin:0 0 4px;">${esc(l.title)}</h2>
+                               ${l.description ? `<p style="margin:0; color:var(--text-muted); font-size:14px; line-height:1.6;">${esc(l.description)}</p>` : ''}
+                           </div>`
+                        : `<div style="padding:14px 6px; border-bottom:1px solid var(--border); opacity:.5; display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                               <div>
+                                   <h2 style="font-size:17px; font-weight:700; color:var(--navy-800); margin:0 0 4px;">${esc(l.title)}</h2>
+                                   ${l.description ? `<p style="margin:0; color:var(--text-muted); font-size:14px; line-height:1.6;">${esc(l.description)}</p>` : ''}
+                               </div>
+                               ${LOCK}
+                           </div>`).join('');
             }
 
             // Video Lectures
