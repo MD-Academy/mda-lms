@@ -23,7 +23,7 @@
         .view-toggle:hover { background: rgba(255,255,255,0.22); }
         #pdf-container { padding: 24px 12px 60px; display: flex; flex-direction: column; align-items: center; gap: 16px; }
         #pdf-container canvas { max-width: 100%; box-shadow: 0 4px 20px rgba(0,0,0,0.4); background: #fff; }
-        #flipbook { margin: 28px auto; width: min(980px, 94vw); }
+        #flipbook { margin: 20px auto; }
         #flipbook .stf__item { box-shadow: 0 4px 24px rgba(0,0,0,0.45); }
         #status { color: #e5e7eb; text-align: center; padding: 60px 20px; font-size: 15px; }
         /* Tiled watermark over the whole reading area */
@@ -158,34 +158,49 @@
             }
         }
 
+        let BOOK_IMAGES = null;     // cached page images so re-toggling / resizing is instant
+        let BOOK_ASPECT = 1.414;
+
         async function renderBook() {
             const pdf = PDF_DOC; if (!pdf) return;
             const container = document.getElementById('pdf-container');
             container.style.display = 'block';
-            container.innerHTML = `<div id="status">Preparing book view… 0/${pdf.numPages}</div>`;
-            const images = [];
-            let aspect = 1.414;
-            for (let n = 1; n <= pdf.numPages; n++) {
-                const page = await pdf.getPage(n);
-                const vp = page.getViewport({ scale: 2 });   // crisp page images
-                if (n === 1) aspect = vp.height / vp.width;
-                const c = document.createElement('canvas');
-                c.width = vp.width; c.height = vp.height;
-                await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
-                images.push(c.toDataURL('image/jpeg', 0.85));
-                const s = document.getElementById('status'); if (s) s.textContent = `Preparing book view… ${n}/${pdf.numPages}`;
-                if (VIEW_MODE !== 'book') return;   // user switched away mid-prep
+            if (!BOOK_IMAGES) {
+                container.innerHTML = `<div id="status">Preparing book view… 0/${pdf.numPages}</div>`;
+                const images = [];
+                for (let n = 1; n <= pdf.numPages; n++) {
+                    const page = await pdf.getPage(n);
+                    const vp = page.getViewport({ scale: 2 });   // crisp page images
+                    if (n === 1) BOOK_ASPECT = vp.height / vp.width;
+                    const c = document.createElement('canvas');
+                    c.width = vp.width; c.height = vp.height;
+                    await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+                    images.push(c.toDataURL('image/jpeg', 0.85));
+                    const s = document.getElementById('status'); if (s) s.textContent = `Preparing book view… ${n}/${pdf.numPages}`;
+                    if (VIEW_MODE !== 'book') return;   // user switched away mid-prep
+                }
+                BOOK_IMAGES = images;
             }
             if (VIEW_MODE !== 'book') return;
+            buildFlip();
+        }
+
+        function buildFlip() {
+            if (!BOOK_IMAGES) return;
+            const container = document.getElementById('pdf-container');
             container.innerHTML = '<div id="flipbook"></div>';
-            const baseW = 460, baseH = Math.round(baseW * aspect);
+            // Fill the screen: biggest 2-page spread that fits both the window width and height.
+            const availH = Math.max(420, window.innerHeight - 120);
+            const availW = window.innerWidth * 0.96;
+            let pageW = Math.min(availW / 2, availH / BOOK_ASPECT);
+            pageW = Math.max(320, Math.round(pageW));
+            const pageH = Math.round(pageW * BOOK_ASPECT);
             try {
                 bookFlip = new St.PageFlip(document.getElementById('flipbook'), {
-                    width: baseW, height: baseH, size: 'stretch',
-                    minWidth: 300, maxWidth: 600, minHeight: 380, maxHeight: 900,
+                    width: pageW, height: pageH, size: 'fixed',
                     drawShadow: true, flippingTime: 600, showCover: false, usePortrait: true, mobileScrollSupport: false
                 });
-                bookFlip.loadFromImages(images);
+                bookFlip.loadFromImages(BOOK_IMAGES);
             } catch (err) {
                 console.error('[viewer] book view failed:', err);
                 container.innerHTML = `<div id="status">Couldn't open book view. Switching back to scrolling…</div>`;
@@ -194,6 +209,14 @@
                 renderScroll();
             }
         }
+
+        // Re-fit the book to the new size when the window changes (uses cached pages — instant).
+        let _bookResizeTimer = null;
+        window.addEventListener('resize', () => {
+            if (VIEW_MODE !== 'book' || !BOOK_IMAGES) return;
+            clearTimeout(_bookResizeTimer);
+            _bookResizeTimer = setTimeout(buildFlip, 250);
+        });
 
         function toggleView() {
             VIEW_MODE = VIEW_MODE === 'scroll' ? 'book' : 'scroll';
