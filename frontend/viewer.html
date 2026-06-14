@@ -17,8 +17,14 @@
         .reader-top a { color: #fff; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; }
         .reader-top .rt-title { font-size: 14px; color: rgba(255,255,255,0.85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .reader-top .rt-note { font-size: 12px; color: var(--gold, #d4af37); font-weight: 600; }
+        .reader-top .rt-right { display: flex; align-items: center; gap: 14px; }
+        .view-toggle { display: none; background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.28);
+            border-radius: 8px; padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; white-space: nowrap; }
+        .view-toggle:hover { background: rgba(255,255,255,0.22); }
         #pdf-container { padding: 24px 12px 60px; display: flex; flex-direction: column; align-items: center; gap: 16px; }
         #pdf-container canvas { max-width: 100%; box-shadow: 0 4px 20px rgba(0,0,0,0.4); background: #fff; }
+        #flipbook { margin: 28px auto; width: min(980px, 94vw); }
+        #flipbook .stf__item { box-shadow: 0 4px 24px rgba(0,0,0,0.45); }
         #status { color: #e5e7eb; text-align: center; padding: 60px 20px; font-size: 15px; }
         /* Tiled watermark over the whole reading area */
         #watermark { position: fixed; inset: 48px 0 0 0; pointer-events: none; z-index: 20; background-repeat: repeat; opacity: 1; }
@@ -30,13 +36,17 @@
             <a href="#" id="back-link">← Back</a>
             <span class="rt-title" id="rt-title">Loading…</span>
         </div>
-        <span class="rt-note">Read-only</span>
+        <div class="rt-right">
+            <button id="view-toggle" class="view-toggle" onclick="toggleView()">📖 Book view</button>
+            <span class="rt-note">Read-only</span>
+        </div>
     </div>
     <div id="watermark"></div>
     <div id="pdf-container"><div id="status">Loading material…</div></div>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js"></script>
     <script src="js/config.js"></script>
     <script src="js/auth.js"></script>
     <script>
@@ -110,29 +120,87 @@
             try {
                 if (typeof pdfjsLib === 'undefined') throw new Error('PDF viewer failed to load. Please refresh.');
                 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-                const pdf = await pdfjsLib.getDocument({ url: signedUrl }).promise;
-                const container = document.getElementById('pdf-container');
-                container.innerHTML = '';
-                const width = Math.min(900, window.innerWidth - 24);
-                for (let n = 1; n <= pdf.numPages; n++) {
-                    const page = await pdf.getPage(n);
-                    const base = page.getViewport({ scale: 1 });
-                    const scale = width / base.width;
-                    const viewport = page.getViewport({ scale: scale * (window.devicePixelRatio || 1) });
-                    const canvas = document.createElement('canvas');
-                    canvas.width = viewport.width; canvas.height = viewport.height;
-                    canvas.style.width = (viewport.width / (window.devicePixelRatio || 1)) + 'px';
-                    container.appendChild(canvas);
-                    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-                }
+                PDF_DOC = await pdfjsLib.getDocument({ url: signedUrl }).promise;
                 done = true; clearTimeout(watchdog);
+                document.getElementById('view-toggle').style.display = 'inline-block';   // book view available for PDFs
+                await renderScroll();
             } catch (err) {
                 done = true; clearTimeout(watchdog);
-                console.error('[viewer] PDF render failed:', err);
+                console.error('[viewer] PDF load failed:', err);
                 document.getElementById('pdf-container').innerHTML = `<div id="status">This file couldn't be displayed in the reader.<br>(${esc((err && err.message) || 'error')})<br><br><a href="#" onclick="location.reload();return false;" style="color:#8ab4ff;">Refresh to retry</a></div>`;
             }
         })();
+
         function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+        // ── PDF VIEW MODES: scroll (default) ↔ book (page-flip) ──
+        let PDF_DOC = null;
+        let VIEW_MODE = 'scroll';
+        let bookFlip = null;
+
+        async function renderScroll() {
+            const pdf = PDF_DOC; if (!pdf) return;
+            const container = document.getElementById('pdf-container');
+            container.style.display = 'flex';
+            container.innerHTML = '';
+            bookFlip = null;
+            const width = Math.min(900, window.innerWidth - 24);
+            for (let n = 1; n <= pdf.numPages; n++) {
+                const page = await pdf.getPage(n);
+                const base = page.getViewport({ scale: 1 });
+                const scale = width / base.width;
+                const viewport = page.getViewport({ scale: scale * (window.devicePixelRatio || 1) });
+                const canvas = document.createElement('canvas');
+                canvas.width = viewport.width; canvas.height = viewport.height;
+                canvas.style.width = (viewport.width / (window.devicePixelRatio || 1)) + 'px';
+                container.appendChild(canvas);
+                await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+            }
+        }
+
+        async function renderBook() {
+            const pdf = PDF_DOC; if (!pdf) return;
+            const container = document.getElementById('pdf-container');
+            container.style.display = 'block';
+            container.innerHTML = `<div id="status">Preparing book view… 0/${pdf.numPages}</div>`;
+            const images = [];
+            let aspect = 1.414;
+            for (let n = 1; n <= pdf.numPages; n++) {
+                const page = await pdf.getPage(n);
+                const vp = page.getViewport({ scale: 2 });   // crisp page images
+                if (n === 1) aspect = vp.height / vp.width;
+                const c = document.createElement('canvas');
+                c.width = vp.width; c.height = vp.height;
+                await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+                images.push(c.toDataURL('image/jpeg', 0.85));
+                const s = document.getElementById('status'); if (s) s.textContent = `Preparing book view… ${n}/${pdf.numPages}`;
+                if (VIEW_MODE !== 'book') return;   // user switched away mid-prep
+            }
+            if (VIEW_MODE !== 'book') return;
+            container.innerHTML = '<div id="flipbook"></div>';
+            const baseW = 460, baseH = Math.round(baseW * aspect);
+            try {
+                bookFlip = new St.PageFlip(document.getElementById('flipbook'), {
+                    width: baseW, height: baseH, size: 'stretch',
+                    minWidth: 300, maxWidth: 600, minHeight: 380, maxHeight: 900,
+                    drawShadow: true, flippingTime: 600, showCover: false, usePortrait: true, mobileScrollSupport: false
+                });
+                bookFlip.loadFromImages(images);
+            } catch (err) {
+                console.error('[viewer] book view failed:', err);
+                container.innerHTML = `<div id="status">Couldn't open book view. Switching back to scrolling…</div>`;
+                VIEW_MODE = 'scroll';
+                document.getElementById('view-toggle').textContent = '📖 Book view';
+                renderScroll();
+            }
+        }
+
+        function toggleView() {
+            VIEW_MODE = VIEW_MODE === 'scroll' ? 'book' : 'scroll';
+            document.getElementById('view-toggle').textContent = VIEW_MODE === 'book' ? '📄 Scroll view' : '📖 Book view';
+            if (VIEW_MODE === 'book') renderBook(); else renderScroll();
+            window.scrollTo({ top: 0 });
+        }
     </script>
 </body>
 </html>
