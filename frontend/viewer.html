@@ -80,7 +80,32 @@
                 return;
             }
 
-            // 2) Render with PDF.js into canvases (no download link, no native toolbar).
+            // 2) Render by file type. Images show as <img>; PDFs via PDF.js; other formats can't preview.
+            const ext = ((path.split(/[?#]/)[0].split('.').pop()) || '').toLowerCase();
+            const IMG_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'];
+
+            if (IMG_EXT.includes(ext)) {
+                const container = document.getElementById('pdf-container');
+                container.innerHTML = '';
+                const img = document.createElement('img');
+                img.alt = title;
+                img.style.maxWidth = '100%';
+                img.style.boxShadow = '0 4px 20px rgba(0,0,0,0.4)';
+                img.oncontextmenu = () => false;
+                img.onload = () => { done = true; clearTimeout(watchdog); };
+                img.onerror = () => { done = true; clearTimeout(watchdog); container.innerHTML = `<div id="status">Couldn't load this image.<br><a href="#" onclick="location.reload();return false;" style="color:#8ab4ff;">Refresh to retry</a></div>`; };
+                img.src = signedUrl;
+                container.appendChild(img);
+                return;
+            }
+
+            if (ext && ext !== 'pdf') {
+                done = true; clearTimeout(watchdog);
+                document.getElementById('pdf-container').innerHTML = `<div id="status">This file type (<strong>.${esc(ext)}</strong>) can't be shown in the read-only reader.<br>Please provide it as a <strong>PDF</strong> for in-portal viewing, or contact the office.</div>`;
+                return;
+            }
+
+            // PDF (or unknown extension — try PDF.js).
             setStatus('Loading the document…');
             try {
                 if (typeof pdfjsLib === 'undefined') throw new Error('PDF viewer failed to load. Please refresh.');
