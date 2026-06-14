@@ -37,6 +37,8 @@
             <span class="rt-title" id="rt-title">Loading…</span>
         </div>
         <div class="rt-right">
+            <button id="zoom-out" class="view-toggle" style="display:none;padding:6px 11px;font-size:16px;" onclick="zoomBook(-1)" title="Zoom out">−</button>
+            <button id="zoom-in" class="view-toggle" style="display:none;padding:6px 11px;font-size:16px;" onclick="zoomBook(1)" title="Zoom in">+</button>
             <button id="view-toggle" class="view-toggle" onclick="toggleView()">📖 Book view</button>
             <span class="rt-note">Read-only</span>
         </div>
@@ -160,6 +162,7 @@
 
         let BOOK_IMAGES = null;     // cached page images so re-toggling / resizing is instant
         let BOOK_ASPECT = 1.414;
+        let ZOOM = 1;
 
         async function renderBook() {
             const pdf = PDF_DOC; if (!pdf) return;
@@ -170,12 +173,12 @@
                 const images = [];
                 for (let n = 1; n <= pdf.numPages; n++) {
                     const page = await pdf.getPage(n);
-                    const vp = page.getViewport({ scale: 2 });   // crisp page images
+                    const vp = page.getViewport({ scale: 3 });   // high-res so text stays crisp when zoomed
                     if (n === 1) BOOK_ASPECT = vp.height / vp.width;
                     const c = document.createElement('canvas');
                     c.width = vp.width; c.height = vp.height;
                     await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
-                    images.push(c.toDataURL('image/jpeg', 0.85));
+                    images.push(c.toDataURL('image/png'));   // lossless — no JPEG blur on letters
                     const s = document.getElementById('status'); if (s) s.textContent = `Preparing book view… ${n}/${pdf.numPages}`;
                     if (VIEW_MODE !== 'book') return;   // user switched away mid-prep
                 }
@@ -189,11 +192,11 @@
             if (!BOOK_IMAGES) return;
             const container = document.getElementById('pdf-container');
             container.innerHTML = '<div id="flipbook"></div>';
-            // Fill the screen: biggest 2-page spread that fits both the window width and height.
+            // Fit the screen, then apply the zoom factor (zoom > 1 makes the page scroll).
             const availH = Math.max(420, window.innerHeight - 120);
             const availW = window.innerWidth * 0.96;
-            let pageW = Math.min(availW / 2, availH / BOOK_ASPECT);
-            pageW = Math.max(320, Math.round(pageW));
+            let fitW = Math.min(availW / 2, availH / BOOK_ASPECT);
+            let pageW = Math.max(320, Math.round(fitW * ZOOM));
             const pageH = Math.round(pageW * BOOK_ASPECT);
             try {
                 bookFlip = new St.PageFlip(document.getElementById('flipbook'), {
@@ -221,8 +224,16 @@
         function toggleView() {
             VIEW_MODE = VIEW_MODE === 'scroll' ? 'book' : 'scroll';
             document.getElementById('view-toggle').textContent = VIEW_MODE === 'book' ? '📄 Scroll view' : '📖 Book view';
-            if (VIEW_MODE === 'book') renderBook(); else renderScroll();
+            const zb = VIEW_MODE === 'book' ? 'inline-block' : 'none';
+            document.getElementById('zoom-in').style.display = zb;
+            document.getElementById('zoom-out').style.display = zb;
+            if (VIEW_MODE === 'book') { ZOOM = 1; renderBook(); } else renderScroll();
             window.scrollTo({ top: 0 });
+        }
+
+        function zoomBook(dir) {
+            ZOOM = dir > 0 ? Math.min(3, ZOOM * 1.2) : Math.max(0.6, ZOOM / 1.2);
+            buildFlip();
         }
     </script>
 </body>
