@@ -14,6 +14,19 @@ function _esc(str) {
     return String(str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
 
+// Breadcrumb trail so students always see where they are and can jump back a step.
+// items = [{ label, href? }]; the last item is the current page (shown plain, not linked).
+function crumbs(items) {
+    return `<nav class="crumbs" aria-label="Breadcrumb">` + items.map((c, i) => {
+        const sep = i > 0 ? `<span class="crumb-sep">›</span>` : '';
+        const isLast = i === items.length - 1;
+        const node = (!isLast && c.href)
+            ? `<a class="crumb" href="${c.href}">${_esc(c.label)}</a>`
+            : `<span class="crumb-current" aria-current="page">${_esc(c.label)}</span>`;
+        return sep + node;
+    }).join('') + `</nav>`;
+}
+
 function renderLayout(activeId, pageTitle, pageSub, profile) {
     const initials = (profile.full_name || 'S').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
 

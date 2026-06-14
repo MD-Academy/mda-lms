@@ -58,6 +58,7 @@
             const auth = await requireStudent();
             if (!auth) return;
             const roomId = new URLSearchParams(location.search).get('id');
+            const courseId = new URLSearchParams(location.search).get('course');
             if (!roomId) { location.href = 'courses.html'; return; }
 
             const { data: room, error: roomErr } = await db.from('rooms').select('id, name, description, is_visible').eq('id', roomId).single();
@@ -70,7 +71,16 @@
             if (!room || !room.is_visible) { location.href = 'courses.html'; return; }
             renderLayout('courses', room.name, 'Lessons, lectures & materials', auth.profile);
 
+            // Breadcrumb trail: My Courses → [Course] → [Subject]. Course step appears when we know which course we came from.
+            const crumbItems = [{ label: 'My Courses', href: 'courses.html' }];
+            if (courseId) {
+                const { data: c } = await db.from('courses').select('name').eq('id', courseId).single();
+                if (c) crumbItems.push({ label: c.name, href: `course.html?id=${encodeURIComponent(courseId)}` });
+            }
+            crumbItems.push({ label: room.name });
+
             document.getElementById('page-content').innerHTML = `
+                ${crumbs(crumbItems)}
                 <a class="btn btn-ghost" onclick="history.back()" style="margin-bottom:18px;cursor:pointer;">← Back</a>
                 <div class="section"><div class="section-title">📘 Lessons</div><div id="lessons-box"><div class="loader">Loading…</div></div></div>
                 <div class="section"><div class="section-title">🎥 Video Lectures</div><div id="lectures-box"><div class="loader">Loading…</div></div></div>
