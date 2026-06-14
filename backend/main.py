@@ -3,7 +3,7 @@ import logging
 import secrets
 import string
 from typing import Optional, List
-from datetime import date
+from datetime import date, timedelta
 
 logger = logging.getLogger("mda")
 
@@ -501,21 +501,30 @@ def _to_date(val):
         return None
 
 
-def _months_ago(n: int) -> date:
-    """First day of the month n months before today (a clean cleanup threshold)."""
-    total = date.today().year * 12 + (date.today().month - 1) - n
-    y, m = divmod(total, 12)
-    return date(y, m + 1, 1)
+# Auto-cleanup window: announcements and past calendar events are hard-deleted
+# once they are this many days old, so the dashboard never accumulates forever.
+PURGE_DAYS = 21
 
 
 def _purge_old_announcements():
-    """Hard-delete announcements older than 4 months (one course length)."""
-    cutoff = _months_ago(4).isoformat()
+    """Hard-delete announcements posted more than PURGE_DAYS ago."""
+    cutoff = (date.today() - timedelta(days=PURGE_DAYS)).isoformat()
     try:
         res = supabase.table("announcements").delete().lt("posted_at", cutoff).execute()
         return len(res.data or [])
     except Exception as e:
         logger.error("Announcement purge failed: %s", e)
+        return 0
+
+
+def _purge_old_schedule():
+    """Hard-delete calendar entries whose date passed more than PURGE_DAYS ago."""
+    cutoff = (date.today() - timedelta(days=PURGE_DAYS)).isoformat()
+    try:
+        res = supabase.table("schedule_entries").delete().lt("entry_date", cutoff).execute()
+        return len(res.data or [])
+    except Exception as e:
+        logger.error("Schedule purge failed: %s", e)
         return 0
 
 
@@ -597,6 +606,7 @@ def cron_daily_emails(request: Request):
         raise HTTPException(status_code=401, detail="Unauthorized")
     result = _run_daily_reminders()
     result["announcements_purged"] = _purge_old_announcements()
+    result["schedule_purged"] = _purge_old_schedule()
     return result
 
 

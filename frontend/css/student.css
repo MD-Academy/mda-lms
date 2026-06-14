@@ -138,6 +138,31 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .badge-subject { display: inline-block; font-size: 11px; font-weight: 600; color: var(--blue-600); background: #eff5ff; padding: 2px 9px; border-radius: 20px; }
 .badge-general { display: inline-block; font-size: 11px; font-weight: 600; color: var(--crimson); background: #fdeef4; padding: 2px 9px; border-radius: 20px; }
 
+/* Scrollable list (caps at ~3 items, scrolls inside its own box) + pagination */
+.scroll-list { overflow-y: auto; padding-right: 4px; }
+.scroll-list::-webkit-scrollbar { width: 8px; }
+.scroll-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
+.scroll-list::-webkit-scrollbar-thumb:hover { background: #c7cdd6; }
+.scroll-list > *:last-child { margin-bottom: 0; }
+.pager {
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+    margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+}
+.pager-info { font-size: 12px; color: var(--text-muted); }
+.pager-ctrls { display: flex; align-items: center; gap: 8px; }
+.pager-size { font-size: 12px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 6px; }
+.pager-size select {
+    font-size: 12px; font-weight: 600; color: var(--text); background: var(--card);
+    border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; cursor: pointer;
+}
+.pager-page { font-size: 12px; font-weight: 600; color: var(--text-muted); min-width: 44px; text-align: center; }
+.pager-btn {
+    font-size: 12px; font-weight: 600; color: var(--navy-800); background: var(--card);
+    border: 1px solid var(--border); border-radius: 8px; padding: 5px 12px; cursor: pointer;
+}
+.pager-btn:hover:not(:disabled) { background: var(--bg); }
+.pager-btn:disabled { opacity: .4; cursor: default; }
+
 /* ── PANELS / BUTTONS / FORMS ── */
 .panel { background: var(--card); border-radius: 16px; border: 1px solid var(--border); box-shadow: 0 2px 12px rgba(0,0,0,0.04); padding: 24px; }
 .loader { text-align: center; padding: 40px; color: var(--text-muted); font-size: 14px; }

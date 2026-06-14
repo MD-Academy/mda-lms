@@ -25,6 +25,56 @@
             if (el) el.innerHTML = `<div class="empty-state" style="padding:28px;"><h3 style="color:var(--red)">Couldn't load ${what}</h3><p>Please refresh the page. If it keeps happening, contact the office.</p></div>`;
         }
 
+        // Renders a list that shows ~3 items, scrolls inside its own box for the rest,
+        // and paginates 25/50/100 per page so the page itself never grows endlessly.
+        function makePager(boxId, items, renderItem, emptyMsg){
+            const box = document.getElementById(boxId);
+            if (!box) return;
+            if (!items.length){ box.innerHTML = `<div class="empty-state" style="padding:28px;"><p>${emptyMsg}</p></div>`; return; }
+            let pageSize = 25, page = 0;
+            function draw(){
+                const total = items.length;
+                const pages = Math.max(1, Math.ceil(total / pageSize));
+                if (page >= pages) page = pages - 1;
+                const start = page * pageSize;
+                const slice = items.slice(start, start + pageSize);
+                const showCtrls = total > 3;
+                const showNav = pages > 1;
+                box.innerHTML = `
+                    <div class="scroll-list">${slice.map(renderItem).join('')}</div>
+                    ${showCtrls ? `
+                    <div class="pager">
+                        <div class="pager-info">Showing ${start+1}–${start+slice.length} of ${total}</div>
+                        <div class="pager-ctrls">
+                            <label class="pager-size">Per page
+                                <select class="js-size">
+                                    <option value="25"${pageSize===25?' selected':''}>25</option>
+                                    <option value="50"${pageSize===50?' selected':''}>50</option>
+                                    <option value="100"${pageSize===100?' selected':''}>100</option>
+                                </select>
+                            </label>
+                            ${showNav ? `<button class="pager-btn js-prev" ${page===0?'disabled':''}>‹ Prev</button>
+                            <span class="pager-page">${page+1} / ${pages}</span>
+                            <button class="pager-btn js-next" ${page>=pages-1?'disabled':''}>Next ›</button>` : ''}
+                        </div>
+                    </div>` : ''}`;
+                // Cap the scroll box to exactly ~3 items tall; scroll inside it for the rest.
+                const list = box.querySelector('.scroll-list');
+                const kids = list.children;
+                if (kids.length > 3){
+                    const top = list.getBoundingClientRect().top;
+                    const third = kids[2].getBoundingClientRect();
+                    list.style.maxHeight = Math.round(third.bottom - top + 6) + 'px';
+                    list.style.overflowY = 'auto';
+                }
+                const sizeSel = box.querySelector('.js-size');
+                if (sizeSel) sizeSel.onchange = e => { pageSize = parseInt(e.target.value, 10); page = 0; draw(); };
+                const prev = box.querySelector('.js-prev'); if (prev) prev.onclick = () => { if (page > 0){ page--; draw(); } };
+                const next = box.querySelector('.js-next'); if (next) next.onclick = () => { if (page < pages-1){ page++; draw(); } };
+            }
+            draw();
+        }
+
         (async () => {
             const auth = await requireStudent();
             if (!auth) return;
@@ -58,8 +108,8 @@
                 db.from('courses').select('id, name, description, expires_at, image_url').order('name', { ascending: true }),
                 db.from('course_subjects').select('course_id, room_id'),
                 db.from('rooms').select('id, name'),
-                db.from('schedule_entries').select('id, room_id, course_id, entry_date, topic, details').gte('entry_date', todayIso).order('entry_date', { ascending: true }).limit(40),
-                db.from('announcements').select('id, title, body, course_id, posted_at').order('posted_at', { ascending: false }).limit(30)
+                db.from('schedule_entries').select('id, room_id, course_id, entry_date, topic, details').gte('entry_date', todayIso).order('entry_date', { ascending: true }).limit(200),
+                db.from('announcements').select('id, title, body, course_id, posted_at').order('posted_at', { ascending: false }).limit(200)
             ]);
 
             // What this student is allowed to see: their enrolled courses + the subjects within them.
@@ -102,21 +152,17 @@
                     (!e.course_id && !e.room_id) ||
                     (e.course_id && myCourseIds.has(e.course_id)) ||
                     (e.room_id && mySubjectIds.has(e.room_id))
-                ).slice(0, 8);
-                if (sched.length === 0) {
-                    schedBox.innerHTML = `<div class="empty-state" style="padding:28px;"><p>Nothing scheduled coming up.</p></div>`;
-                } else {
-                    schedBox.innerHTML = sched.map(e => {
-                        const d = new Date(e.entry_date);
-                        const day = d.toLocaleDateString('en-GB',{day:'2-digit'});
-                        const mon = d.toLocaleDateString('en-GB',{month:'short'});
-                        const tag = e.room_id ? `<span class="badge-subject">${esc(roomName[e.room_id] || 'Subject')}</span>` : `<span class="badge-general">General</span>`;
-                        return `<div class="sched">
-                            <div class="s-date"><div class="d">${day}</div><div class="m">${mon}</div></div>
-                            <div class="s-body"><div class="s-topic">${esc(e.topic)}</div><div class="s-sub">${tag}${e.details ? ' · ' + esc(e.details) : ''}</div></div>
-                        </div>`;
-                    }).join('');
-                }
+                );
+                makePager('schedule-box', sched, e => {
+                    const d = new Date(e.entry_date);
+                    const day = d.toLocaleDateString('en-GB',{day:'2-digit'});
+                    const mon = d.toLocaleDateString('en-GB',{month:'short'});
+                    const tag = e.room_id ? `<span class="badge-subject">${esc(roomName[e.room_id] || 'Subject')}</span>` : `<span class="badge-general">General</span>`;
+                    return `<div class="sched">
+                        <div class="s-date"><div class="d">${day}</div><div class="m">${mon}</div></div>
+                        <div class="s-body"><div class="s-topic">${esc(e.topic)}</div><div class="s-sub">${tag}${e.details ? ' · ' + esc(e.details) : ''}</div></div>
+                    </div>`;
+                }, 'Nothing scheduled coming up.');
             }
 
             // Announcements
@@ -125,16 +171,12 @@
                 loadError('ann-box', 'announcements', annRes.error);
             } else {
                 // Only general announcements or ones for my enrolled courses.
-                const anns = (annRes.data || []).filter(a => !a.course_id || myCourseIds.has(a.course_id)).slice(0, 5);
-                if (anns.length === 0) {
-                    annBox.innerHTML = `<div class="empty-state" style="padding:28px;"><p>No announcements right now.</p></div>`;
-                } else {
-                    annBox.innerHTML = anns.map(a => `
-                        <div class="notice">
-                            <div class="n-head"><div class="n-title">${esc(a.title)}</div><div class="n-date">${fmtDateTime(a.posted_at)}</div></div>
-                            <div class="n-body">${esc(a.body)}</div>
-                        </div>`).join('');
-                }
+                const anns = (annRes.data || []).filter(a => !a.course_id || myCourseIds.has(a.course_id));
+                makePager('ann-box', anns, a => `
+                    <div class="notice">
+                        <div class="n-head"><div class="n-title">${esc(a.title)}</div><div class="n-date">${fmtDateTime(a.posted_at)}</div></div>
+                        <div class="n-body">${esc(a.body)}</div>
+                    </div>`, 'No announcements right now.');
             }
         })();
     </script>
