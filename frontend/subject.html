@@ -81,8 +81,8 @@
 
             const [lRes, recRes, mRes] = await Promise.all([
                 db.from('lessons').select('id, title, description, order_index, is_visible').eq('room_id', roomId).order('order_index', { ascending: true }),
-                db.from('recordings').select('id, title, professor, recorded_date, aws_url, is_visible, kind').eq('room_id', roomId).eq('kind', 'lecture').order('recorded_date', { ascending: false }),
-                db.from('materials').select('id, title, type, storage_path, external_url, category, is_visible, created_at').eq('room_id', roomId).order('created_at', { ascending: false })
+                db.from('recordings').select('id, title, professor, recorded_date, aws_url, is_visible, kind').eq('room_id', roomId).eq('kind', 'lecture').order('created_at', { ascending: true }),
+                db.from('materials').select('id, title, type, storage_path, external_url, category, is_visible, created_at').eq('room_id', roomId).order('created_at', { ascending: true })
             ]);
 
             // Lessons (informational)
