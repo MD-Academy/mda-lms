@@ -160,50 +160,60 @@
             }
         }
 
-        let BOOK_IMAGES = null;     // cached page images so re-toggling / resizing is instant
-        let BOOK_ASPECT = 1.414;
+        let BOOK_ASPECT = null;
         let ZOOM = 1;
+        const RENDER_CACHE = {};   // device-px width -> [PNG data URLs]; keeps it crisp at each zoom level
 
-        async function renderBook() {
+        async function renderBook() { await buildFlip(); }
+
+        async function buildFlip() {
             const pdf = PDF_DOC; if (!pdf) return;
             const container = document.getElementById('pdf-container');
             container.style.display = 'block';
-            if (!BOOK_IMAGES) {
-                container.innerHTML = `<div id="status">Preparing book view… 0/${pdf.numPages}</div>`;
-                const images = [];
+
+            if (BOOK_ASPECT === null) {
+                const v1 = (await pdf.getPage(1)).getViewport({ scale: 1 });
+                BOOK_ASPECT = v1.height / v1.width;
+            }
+
+            // Displayed page size: fit the screen, then apply zoom.
+            const availH = Math.max(420, window.innerHeight - 120);
+            const availW = window.innerWidth * 0.96;
+            const fitW = Math.min(availW / 2, availH / BOOK_ASPECT);
+            const pageW = Math.max(320, Math.round(fitW * ZOOM));
+            const pageH = Math.round(pageW * BOOK_ASPECT);
+
+            // Render pages at the EXACT displayed resolution × device pixel ratio — same as scroll view.
+            const dpr = window.devicePixelRatio || 1;
+            const renderW = Math.min(4200, Math.round(pageW * dpr));   // cap protects memory at extreme zoom
+            if (!RENDER_CACHE[renderW]) {
+                container.innerHTML = `<div id="status">Rendering pages… 0/${pdf.numPages}</div>`;
+                const basePt = (await pdf.getPage(1)).getViewport({ scale: 1 }).width;
+                const scale = renderW / basePt;
+                const imgs = [];
                 for (let n = 1; n <= pdf.numPages; n++) {
                     const page = await pdf.getPage(n);
-                    const vp = page.getViewport({ scale: 3 });   // high-res so text stays crisp when zoomed
-                    if (n === 1) BOOK_ASPECT = vp.height / vp.width;
+                    const vp = page.getViewport({ scale });
                     const c = document.createElement('canvas');
                     c.width = vp.width; c.height = vp.height;
                     await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
-                    images.push(c.toDataURL('image/png'));   // lossless — no JPEG blur on letters
-                    const s = document.getElementById('status'); if (s) s.textContent = `Preparing book view… ${n}/${pdf.numPages}`;
-                    if (VIEW_MODE !== 'book') return;   // user switched away mid-prep
+                    imgs.push(c.toDataURL('image/png'));
+                    const s = document.getElementById('status'); if (s) s.textContent = `Rendering pages… ${n}/${pdf.numPages}`;
+                    if (VIEW_MODE !== 'book') return;
                 }
-                BOOK_IMAGES = images;
+                const keys = Object.keys(RENDER_CACHE);
+                if (keys.length >= 2) delete RENDER_CACHE[keys[0]];   // bound memory to ~2 zoom levels
+                RENDER_CACHE[renderW] = imgs;
             }
             if (VIEW_MODE !== 'book') return;
-            buildFlip();
-        }
 
-        function buildFlip() {
-            if (!BOOK_IMAGES) return;
-            const container = document.getElementById('pdf-container');
             container.innerHTML = '<div id="flipbook"></div>';
-            // Fit the screen, then apply the zoom factor (zoom > 1 makes the page scroll).
-            const availH = Math.max(420, window.innerHeight - 120);
-            const availW = window.innerWidth * 0.96;
-            let fitW = Math.min(availW / 2, availH / BOOK_ASPECT);
-            let pageW = Math.max(320, Math.round(fitW * ZOOM));
-            const pageH = Math.round(pageW * BOOK_ASPECT);
             try {
                 bookFlip = new St.PageFlip(document.getElementById('flipbook'), {
                     width: pageW, height: pageH, size: 'fixed',
                     drawShadow: true, flippingTime: 600, showCover: false, usePortrait: true, mobileScrollSupport: false
                 });
-                bookFlip.loadFromImages(BOOK_IMAGES);
+                bookFlip.loadFromImages(RENDER_CACHE[renderW]);
             } catch (err) {
                 console.error('[viewer] book view failed:', err);
                 container.innerHTML = `<div id="status">Couldn't open book view. Switching back to scrolling…</div>`;
@@ -213,10 +223,10 @@
             }
         }
 
-        // Re-fit the book to the new size when the window changes (uses cached pages — instant).
+        // Re-fit (and re-render at the right resolution) when the window changes.
         let _bookResizeTimer = null;
         window.addEventListener('resize', () => {
-            if (VIEW_MODE !== 'book' || !BOOK_IMAGES) return;
+            if (VIEW_MODE !== 'book') return;
             clearTimeout(_bookResizeTimer);
             _bookResizeTimer = setTimeout(buildFlip, 250);
         });
