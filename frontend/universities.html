@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="assets/images/favicon.png?v=1">
+    <title>Medical Doctor Academy — University Selection</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/student.css">
+    <style>
+        .uni-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
+        .uni-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.03); display: flex; flex-direction: column; }
+        .uni-top { height: 120px; background-size: cover; background-position: center; }
+        .uni-body { padding: 16px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+        .uni-name { font-size: 16px; font-weight: 800; color: var(--navy-800); }
+        .uni-loc { font-size: 13px; color: var(--text-muted); }
+        .uni-badges { display: flex; flex-wrap: wrap; gap: 5px; }
+        .ubadge { font-size: 11px; font-weight: 600; color: var(--blue-600); background: #eff5ff; padding: 2px 9px; border-radius: 20px; }
+        .uni-exam { font-size: 12px; color: var(--text-muted); }
+        .uni-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 8px; }
+        .uni-actions .btn-sm { padding: 7px 11px; font-size: 13px; }
+        .sel-status { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 20px; display: inline-block; }
+        .sel-applying { background: #eff5ff; color: #1d4ed8; }
+        .sel-accepted { background: #e7f7ee; color: #15803d; }
+        .sel-final { background: #fef3c7; color: #92400e; }
+        .ovl { position: fixed; inset: 0; background: rgba(10,18,40,0.55); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+        .ovl.open { display: flex; }
+        .ovl-box { background: var(--card); border-radius: 16px; width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto; }
+        .ovl-head { display: flex; justify-content: space-between; align-items: center; padding: 18px 22px; border-bottom: 1px solid var(--border); }
+        .ovl-head h3 { margin: 0; font-size: 19px; color: var(--navy-800); }
+        .ovl-close { background: none; border: none; font-size: 26px; line-height: 1; cursor: pointer; color: var(--text-muted); }
+        .ovl-body { padding: 22px; }
+        .deg-check { display: flex; align-items: center; gap: 10px; padding: 8px 4px; font-size: 14px; cursor: pointer; }
+        .deg-check input { width: 17px; height: 17px; accent-color: var(--blue-600); }
+    </style>
+</head>
+<body>
+    <div class="layout" id="app-layout"></div>
+
+    <!-- DETAILS MODAL -->
+    <div class="ovl" id="details-ovl">
+        <div class="ovl-box">
+            <div class="ovl-head"><h3 id="d-name">University</h3><button class="ovl-close" onclick="closeOvl('details-ovl')">&times;</button></div>
+            <div class="ovl-body" id="d-body"></div>
+        </div>
+    </div>
+
+    <!-- SELECT / DEGREES MODAL -->
+    <div class="ovl" id="select-ovl">
+        <div class="ovl-box">
+            <div class="ovl-head"><h3 id="s-title">Select university</h3><button class="ovl-close" onclick="closeOvl('select-ovl')">&times;</button></div>
+            <div class="ovl-body">
+                <p style="margin:0 0 8px;font-size:14px;color:var(--text-muted);">Choose the degree(s) you're applying for at <strong id="s-uni"></strong>. You can pick more than one.</p>
+                <div id="s-degrees"></div>
+                <div class="att-warn" id="s-alert" style="display:none;"></div>
+                <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;">
+                    <button class="btn btn-ghost" onclick="closeOvl('select-ovl')">Cancel</button>
+                    <button class="btn btn-primary" id="s-save" onclick="saveSelection()">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/layout.js"></script>
+    <script>
+        function esc(s){ return s ? String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) : ''; }
+        function fmtExamDate(iso){ return iso ? new Date(iso + 'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : ''; }
+        function openOvl(id){ document.getElementById(id).classList.add('open'); }
+        function closeOvl(id){ document.getElementById(id).classList.remove('open'); }
+
+        let MY_ID = null;
+        let UNIS = [];          // universities
+        let uniMap = {};
+        let MY = {};            // university_id -> selection {id, status, degrees, is_final_choice}
+        let selUniId = null;    // university being edited in the select modal
+
+        async function loadAll() {
+            const box = document.getElementById('page-content');
+            box.innerHTML = `<div class="loader">Loading universities…</div>`;
+            const [uRes, sRes] = await Promise.all([
+                db.from('universities').select('id, name, country, location, costs, website, description, degrees, exam_dates, image_url').order('name', { ascending: true }),
+                db.from('university_selections').select('id, university_id, status, degrees, is_final_choice').eq('student_id', MY_ID)
+            ]);
+            if (uRes.error) {
+                console.error('[universities] load failed:', uRes.error);
+                box.innerHTML = `<div class="empty-state" style="padding:48px;"><h3 style="color:var(--red)">Couldn't load universities</h3><p>Please refresh. If it keeps happening, contact the office.</p></div>`;
+                return;
+            }
+            UNIS = uRes.data || [];
+            uniMap = {}; UNIS.forEach(u => uniMap[u.id] = u);
+            MY = {}; (sRes.data || []).forEach(s => MY[s.university_id] = s);
+            render();
+        }
+
+        function render() {
+            const box = document.getElementById('page-content');
+            if (UNIS.length === 0) {
+                box.innerHTML = `<div class="empty-state" style="padding:48px;"><h3>No universities yet</h3><p>Your academy hasn't added partner universities yet. Check back soon.</p></div>`;
+                return;
+            }
+            const finalSel = Object.values(MY).find(s => s.is_final_choice);
+            const finalName = finalSel ? (uniMap[finalSel.university_id] || {}).name : null;
+            const summary = `
+                <div class="att-card" style="margin-bottom:22px;">
+                    <p style="margin:0;font-size:14px;color:var(--text-muted);">Pick the universities you're <strong>applying</strong> to, mark the ones that <strong>accepted</strong> you, then star the one you <strong>chose to attend</strong>. Only you can change these — the office sees your choices.</p>
+                    ${finalName ? `<p style="margin:10px 0 0;font-size:14px;"><span class="sel-status sel-final">★ Chosen to attend</span> <strong>${esc(finalName)}</strong></p>` : ''}
+                </div>`;
+
+            const cards = UNIS.map(u => {
+                const sel = MY[u.id];
+                const exams = (u.exam_dates || []).length ? `<div class="uni-exam">📅 Exam: ${(u.exam_dates).map(d => esc(fmtExamDate(d))).join(' · ')}</div>` : '';
+                let statusLine = '';
+                let actions = '';
+                if (!sel) {
+                    actions = `<button class="btn btn-primary" style="flex:1;" onclick="openSelect('${u.id}')">Apply</button>
+                               <button class="btn btn-ghost" onclick="openDetails('${u.id}')">Details</button>`;
+                } else {
+                    const degs = (sel.degrees || []).join(', ') || 'No degree set';
+                    const badge = sel.is_final_choice
+                        ? `<span class="sel-status sel-final">★ Chosen</span>`
+                        : (sel.status === 'accepted' ? `<span class="sel-status sel-accepted">Accepted</span>` : `<span class="sel-status sel-applying">Applying</span>`);
+                    statusLine = `<div>${badge} <span style="font-size:12px;color:var(--text-muted);">${esc(degs)}</span></div>`;
+                    actions = `
+                        <button class="btn btn-ghost btn-sm" onclick="openSelect('${u.id}')">Edit degrees</button>
+                        ${sel.status === 'accepted'
+                            ? `<button class="btn btn-ghost btn-sm" onclick="setStatus('${u.id}','applying')">Set to applying</button>`
+                            : `<button class="btn btn-ghost btn-sm" onclick="setStatus('${u.id}','accepted')">I was accepted ✓</button>`}
+                        ${sel.status === 'accepted'
+                            ? (sel.is_final_choice
+                                ? `<button class="btn btn-ghost btn-sm" onclick="unsetFinal('${u.id}')">Unset choice</button>`
+                                : `<button class="btn btn-primary btn-sm" onclick="chooseFinal('${u.id}')">★ Choose to attend</button>`)
+                            : ''}
+                        <button class="btn btn-ghost btn-sm" onclick="openDetails('${u.id}')">Details</button>
+                        <button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="removeSel('${u.id}')">Remove</button>`;
+                }
+                return `
+                    <div class="uni-card">
+                        <div class="uni-top" style="${u.image_url ? `background-image:url('${esc(u.image_url)}')` : 'background:linear-gradient(135deg,#0d2a52,#4a90d9)'};"></div>
+                        <div class="uni-body">
+                            <div class="uni-name">${esc(u.name)}</div>
+                            <div class="uni-loc">${esc([u.location, u.country].filter(Boolean).join(', ')) || ''}</div>
+                            <div class="uni-badges">${(u.degrees || []).map(d => `<span class="ubadge">${esc(d)}</span>`).join('')}</div>
+                            ${exams}
+                            ${statusLine}
+                            <div class="uni-actions">${actions}</div>
+                        </div>
+                    </div>`;
+            }).join('');
+
+            box.innerHTML = summary + `<div class="uni-grid">${cards}</div>`;
+        }
+
+        function openDetails(uid) {
+            const u = uniMap[uid]; if (!u) return;
+            document.getElementById('d-name').textContent = u.name;
+            const row = (label, val) => val ? `<p style="margin:0 0 10px;"><strong style="color:var(--navy-800);">${label}:</strong> ${esc(val)}</p>` : '';
+            document.getElementById('d-body').innerHTML = `
+                ${u.image_url ? `<div style="height:160px;border-radius:12px;background:url('${esc(u.image_url)}') center/cover;margin-bottom:16px;"></div>` : ''}
+                ${row('Location', [u.location, u.country].filter(Boolean).join(', '))}
+                ${row('Costs', u.costs)}
+                ${(u.degrees || []).length ? `<p style="margin:0 0 10px;"><strong style="color:var(--navy-800);">Degrees offered:</strong> ${u.degrees.map(esc).join(', ')}</p>` : ''}
+                ${(u.exam_dates || []).length ? `<p style="margin:0 0 10px;"><strong style="color:var(--navy-800);">Exam date(s):</strong> ${u.exam_dates.map(d => esc(fmtExamDate(d))).join(' · ')}</p>` : ''}
+                ${u.description ? `<p style="margin:0 0 10px;white-space:pre-line;line-height:1.6;">${esc(u.description)}</p>` : ''}
+                ${u.website ? `<a class="mt-link" href="${esc(u.website)}" target="_blank" rel="noopener noreferrer">🔗 Visit website</a>` : ''}`;
+            openOvl('details-ovl');
+        }
+
+        function openSelect(uid) {
+            const u = uniMap[uid]; if (!u) return;
+            selUniId = uid;
+            const sel = MY[uid];
+            const chosen = sel ? (sel.degrees || []) : [];
+            document.getElementById('s-title').textContent = sel ? 'Edit degrees' : 'Apply to university';
+            document.getElementById('s-uni').textContent = u.name;
+            document.getElementById('s-alert').style.display = 'none';
+            document.getElementById('s-degrees').innerHTML = (u.degrees || []).length
+                ? (u.degrees).map(d => `<label class="deg-check"><input type="checkbox" value="${esc(d)}" ${chosen.includes(d) ? 'checked' : ''}> ${esc(d)}</label>`).join('')
+                : `<p class="att-warn" style="display:block;">This university has no degrees listed yet — contact the office.</p>`;
+            openOvl('select-ovl');
+        }
+
+        async function saveSelection() {
+            const u = uniMap[selUniId]; if (!u) return;
+            const degrees = Array.from(document.querySelectorAll('#s-degrees input[type="checkbox"]:checked')).map(c => c.value);
+            const alert = document.getElementById('s-alert');
+            if (degrees.length === 0) { alert.textContent = 'Pick at least one degree.'; alert.style.display = 'block'; return; }
+            const btn = document.getElementById('s-save'); btn.disabled = true; btn.textContent = 'Saving…';
+            try {
+                const sel = MY[selUniId];
+                let res;
+                if (sel) res = await db.from('university_selections').update({ degrees }).eq('id', sel.id);
+                else res = await db.from('university_selections').insert({ university_id: selUniId, student_id: MY_ID, status: 'applying', degrees });
+                if (res.error) throw new Error(res.error.message);
+                closeOvl('select-ovl');
+                await loadAll();
+            } catch (err) {
+                alert.textContent = err.message; alert.style.display = 'block';
+            } finally {
+                btn.disabled = false; btn.textContent = 'Save';
+            }
+        }
+
+        async function setStatus(uid, status) {
+            const sel = MY[uid]; if (!sel) return;
+            const upd = { status };
+            if (status === 'applying' && sel.is_final_choice) upd.is_final_choice = false;   // can't stay final once not accepted
+            const { error } = await db.from('university_selections').update(upd).eq('id', sel.id);
+            if (error) { alert(`Couldn't update: ${error.message}`); return; }
+            await loadAll();
+        }
+
+        async function chooseFinal(uid) {
+            const sel = MY[uid]; if (!sel || sel.status !== 'accepted') return;
+            // Only one final choice — clear any existing first.
+            await db.from('university_selections').update({ is_final_choice: false }).eq('student_id', MY_ID).eq('is_final_choice', true);
+            const { error } = await db.from('university_selections').update({ is_final_choice: true }).eq('id', sel.id);
+            if (error) { alert(`Couldn't set your choice: ${error.message}`); return; }
+            await loadAll();
+        }
+
+        async function unsetFinal(uid) {
+            const sel = MY[uid]; if (!sel) return;
+            const { error } = await db.from('university_selections').update({ is_final_choice: false }).eq('id', sel.id);
+            if (error) { alert(`Couldn't update: ${error.message}`); return; }
+            await loadAll();
+        }
+
+        async function removeSel(uid) {
+            const u = uniMap[uid];
+            if (!confirm(`Remove ${u ? u.name : 'this university'} from your selections?`)) return;
+            const sel = MY[uid]; if (!sel) return;
+            const { error } = await db.from('university_selections').delete().eq('id', sel.id);
+            if (error) { alert(`Couldn't remove: ${error.message}`); return; }
+            await loadAll();
+        }
+
+        (async () => {
+            const auth = await requireStudent();
+            if (!auth) return;
+            const { data: { session } } = await db.auth.getSession();
+            MY_ID = session.user.id;
+            renderLayout('universities', 'University Selection', 'Choose the universities you apply to and where you decide to go', auth.profile);
+            loadAll();
+        })();
+    </script>
+</body>
+</html>
