@@ -261,6 +261,60 @@ def expiry_email(full_name: str, email: str, expiry_date: str, days_left: int):
     return ("Your portal access is expiring soon", _wrap("⏳ Access expiring soon", body))
 
 
+_TICKET_STATUS_LABELS = {"open": "Open", "in_progress": "In Progress", "completed": "Completed"}
+
+
+def ticket_opened_email(student_name: str, title: str, body_text: str):
+    """Returns (subject, html) for the office: a student opened a new ticket."""
+    safe_body = _esc(body_text).replace("\n", "<br>")
+    body = f"""\
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">
+        <strong>{_esc(student_name)}</strong> opened a new support ticket:</p>
+      <div style="background:#f7f9fc;border:1px solid #e6ecf4;border-left:4px solid #2563eb;border-radius:10px;padding:16px 18px;margin:6px 0 4px;">
+        <div style="font-size:16px;font-weight:700;color:#0d2a52;margin-bottom:6px;">{_esc(title)}</div>
+        <div style="font-size:14px;line-height:1.6;color:#334155;">{safe_body}</div>
+      </div>
+      {_button("Open in the admin portal", "https://admin.medicaldoctor-studies.com/tickets.html")}
+      <p style="margin:0;font-size:13px;color:#94a3b8;">Reply and update the status from the Tickets section.</p>"""
+    return (f"New support ticket: {title}", _wrap("🎫 New support ticket", body))
+
+
+def ticket_office_reply_email(student_name: str, title: str):
+    """Returns (subject, html) for the office: a student replied on a ticket."""
+    body = f"""\
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">
+        <strong>{_esc(student_name)}</strong> replied on their support ticket:</p>
+      <div style="background:#f7f9fc;border:1px solid #e6ecf4;border-left:4px solid #2563eb;border-radius:10px;padding:14px 18px;margin:6px 0 4px;">
+        <div style="font-size:15px;font-weight:700;color:#0d2a52;">{_esc(title)}</div>
+      </div>
+      {_button("Open in the admin portal", "https://admin.medicaldoctor-studies.com/tickets.html")}"""
+    return (f"New reply on ticket: {title}", _wrap("🎫 Ticket updated", body))
+
+
+def ticket_update_email(student_name: str, title: str, reply_text: str = None, status: str = None):
+    """Returns (subject, html) for the student: the office replied and/or changed status."""
+    parts = []
+    if reply_text:
+        parts.append(f"""\
+      <p style="margin:0 0 12px;font-size:15px;line-height:1.6;">The office responded to your ticket:</p>
+      <div style="background:#f7f9fc;border:1px solid #e6ecf4;border-left:4px solid #2563eb;border-radius:10px;padding:14px 18px;margin:6px 0 14px;">
+        <div style="font-size:14px;line-height:1.6;color:#334155;">{_esc(reply_text).replace(chr(10), '<br>')}</div>
+      </div>""")
+    if status:
+        label = _TICKET_STATUS_LABELS.get(status, status)
+        color = {"open": "#dc2626", "in_progress": "#2563eb", "completed": "#16a34a"}.get(status, "#475569")
+        parts.append(f"""\
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">Your ticket's status is now
+        <strong style="color:{color};">{_esc(label)}</strong>.</p>""")
+    body = f"""\
+      {_greeting(student_name)}
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">There's an update on your support ticket
+        <strong>“{_esc(title)}”</strong>.</p>
+      {''.join(parts)}
+      {_button("View your ticket", STUDENT_URL + "/support.html")}"""
+    return (f"Update on your ticket: {title}", _wrap("🎫 Ticket update", body))
+
+
 def diploma_email(full_name: str, course_name: str):
     """Returns (subject, html) for the congratulations email that carries the
     diploma + recommendation letter as attachments."""

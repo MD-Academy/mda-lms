@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="assets/images/favicon.png?v=1">
+    <title>Medical Doctor Academy — Help & Support</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/student.css">
+    <style>
+        .ovl { position: fixed; inset: 0; background: rgba(10,18,40,0.55); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+        .ovl.open { display: flex; }
+        .ovl-box { background: var(--card); border-radius: 16px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; }
+        .ovl-head { display: flex; justify-content: space-between; align-items: center; padding: 18px 22px; border-bottom: 1px solid var(--border); }
+        .ovl-head h3 { margin: 0; font-size: 19px; color: var(--navy-800); }
+        .ovl-close { background: none; border: none; font-size: 26px; line-height: 1; cursor: pointer; color: var(--text-muted); }
+        .ovl-body { padding: 22px; }
+        .ovl-foot { padding: 16px 22px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
+
+        .tk-card { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 12px; margin-bottom: 12px; cursor: pointer; transition: box-shadow .15s, border-color .15s; }
+        .tk-card:hover { box-shadow: 0 3px 14px rgba(0,0,0,.07); border-color: var(--blue-400); }
+        .tk-title { font-weight: 700; color: var(--navy-800); margin-bottom: 3px; }
+        .tk-meta { font-size: 12.5px; color: var(--text-muted); }
+        .badge { display: inline-block; padding: 4px 11px; border-radius: 999px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+        .badge.open { background:#fee2e2; color:#dc2626; }
+        .badge.in_progress { background:#dbeafe; color:#2563eb; }
+        .badge.completed { background:#dcfce7; color:#16a34a; }
+
+        .msg { padding: 12px 14px; border-radius: 12px; margin-bottom: 10px; max-width: 88%; }
+        .msg .who { font-size: 11.5px; font-weight: 700; margin-bottom: 4px; opacity: .8; }
+        .msg .body { font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
+        .msg.student { background: #eef4ff; margin-left: auto; }
+        .msg.staff { background: #f1f5f9; }
+        .msg .when { font-size: 11px; color: var(--text-muted); margin-top: 5px; }
+        .shot { margin-top: 8px; }
+        .shot img { max-width: 220px; border-radius: 8px; border: 1px solid var(--border); display: block; }
+        .form-field { margin-bottom: 16px; }
+        .form-field label { display:block; font-weight:600; font-size:13.5px; margin-bottom:6px; color:var(--text); }
+        .form-field input[type=text], .form-field textarea { width:100%; border:1.5px solid var(--border); border-radius:10px; padding:11px 13px; font-family:'Inter',sans-serif; font-size:14px; outline:none; }
+        .form-field textarea { min-height:120px; resize:vertical; }
+    </style>
+</head>
+<body>
+    <div class="layout" id="app-layout"></div>
+
+    <!-- NEW TICKET MODAL -->
+    <div class="ovl" id="new-ovl">
+        <div class="ovl-box">
+            <div class="ovl-head"><h3>Open a new ticket</h3><button class="ovl-close" onclick="closeOvl('new-ovl')">&times;</button></div>
+            <div class="ovl-body">
+                <div class="alert" id="new-alert" style="display:none;"></div>
+                <div class="form-field">
+                    <label>Title</label>
+                    <input type="text" id="nt-title" maxlength="200" placeholder="e.g. Video won't play in Lesson 3">
+                </div>
+                <div class="form-field">
+                    <label>Describe the problem or suggestion</label>
+                    <textarea id="nt-body" placeholder="Tell us what happened, what you expected, or what you'd like improved…"></textarea>
+                </div>
+                <div class="form-field">
+                    <label>Screenshot <span style="color:var(--text-muted);font-weight:400;">(optional)</span></label>
+                    <input type="file" id="nt-file" accept="image/png,image/jpeg,image/jpg">
+                    <div class="hint" style="margin-top:6px;">JPG or PNG, up to 500&nbsp;KB.</div>
+                </div>
+            </div>
+            <div class="ovl-foot">
+                <button class="btn btn-ghost" onclick="closeOvl('new-ovl')">Cancel</button>
+                <button class="btn btn-primary" id="nt-submit" onclick="submitTicket()">Send ticket</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- TICKET DETAIL MODAL -->
+    <div class="ovl" id="view-ovl">
+        <div class="ovl-box">
+            <div class="ovl-head"><h3 id="v-title">Ticket</h3><button class="ovl-close" onclick="closeOvl('view-ovl')">&times;</button></div>
+            <div class="ovl-body" id="v-body"></div>
+            <div class="ovl-foot" style="flex-direction:column;align-items:stretch;gap:10px;">
+                <textarea id="v-reply" placeholder="Write a reply…" style="width:100%;min-height:80px;border:1.5px solid var(--border);border-radius:10px;padding:11px 13px;font-family:'Inter',sans-serif;font-size:14px;outline:none;resize:vertical;"></textarea>
+                <div style="display:flex;justify-content:flex-end;gap:10px;">
+                    <button class="btn btn-ghost" onclick="closeOvl('view-ovl')">Close</button>
+                    <button class="btn btn-primary" id="v-send" onclick="sendReply()">Send reply</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/layout.js"></script>
+    <script>
+        function esc(s){ return s ? String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) : ''; }
+        function openOvl(id){ document.getElementById(id).classList.add('open'); }
+        function closeOvl(id){ document.getElementById(id).classList.remove('open'); }
+        const STATUS_LABEL = { open: 'Open', in_progress: 'In Progress', completed: 'Completed' };
+        const ALLOWED_IMG = ['png','jpg','jpeg'];
+        const SHOT_MAX = 500 * 1024;
+        const SHOT_BUCKET = 'ticket-uploads';
+        let UID = null, MY_NAME = 'You', CURRENT_TICKET = null;
+
+        function badge(status){ return `<span class="badge ${esc(status)}">${esc(STATUS_LABEL[status] || status)}</span>`; }
+        function fmt(ts){ try { return new Date(ts).toLocaleString(); } catch(e){ return ''; } }
+
+        (async () => {
+            const auth = await requireStudent();
+            if (!auth) return;
+            UID = auth.session.user.id;
+            MY_NAME = auth.profile.full_name || 'You';
+            renderLayout('support', 'Help & Support', 'Report a problem or suggest an improvement', auth.profile);
+
+            document.getElementById('page-content').innerHTML = `
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px;">
+                    <p style="color:var(--text-muted);font-size:14px;margin:0;max-width:560px;">
+                        Found a bug, something not working, or an idea to improve the portal? Open a ticket and the office will get back to you here.</p>
+                    <button class="btn btn-primary" onclick="openNew()">+ Open new ticket</button>
+                </div>
+                <div id="tk-list"><div class="loader">Loading your tickets…</div></div>`;
+            loadTickets();
+        })();
+
+        async function loadTickets() {
+            const box = document.getElementById('tk-list');
+            const { data, error } = await db.from('tickets').select('id, title, status, created_at, updated_at')
+                .eq('student_id', UID).order('updated_at', { ascending: false });
+            if (error) { box.innerHTML = `<div class="panel">Couldn't load your tickets: ${esc(error.message)}</div>`; return; }
+            if (!data || !data.length) {
+                box.innerHTML = `<div class="panel" style="text-align:center;color:var(--text-muted);">You haven't opened any tickets yet.</div>`;
+                return;
+            }
+            box.innerHTML = data.map(t => `
+                <div class="tk-card" onclick="openTicket('${t.id}')">
+                    <div>
+                        <div class="tk-title">${esc(t.title)}</div>
+                        <div class="tk-meta">Updated ${fmt(t.updated_at)}</div>
+                    </div>
+                    ${badge(t.status)}
+                </div>`).join('');
+        }
+
+        function openNew() {
+            document.getElementById('new-alert').style.display = 'none';
+            document.getElementById('nt-title').value = '';
+            document.getElementById('nt-body').value = '';
+            document.getElementById('nt-file').value = '';
+            openOvl('new-ovl');
+        }
+
+        async function submitTicket() {
+            const alert = document.getElementById('new-alert');
+            alert.style.display = 'none';
+            const title = document.getElementById('nt-title').value.trim();
+            const bodyText = document.getElementById('nt-body').value.trim();
+            const file = document.getElementById('nt-file').files[0];
+            function showErr(m){ alert.className = 'alert error'; alert.textContent = m; alert.style.display = 'block'; }
+            if (!title) { showErr('Please add a short title.'); return; }
+            if (!bodyText) { showErr('Please describe the problem.'); return; }
+
+            let screenshotPath = null;
+            const btn = document.getElementById('nt-submit');
+            btn.disabled = true; btn.textContent = 'Sending…';
+            try {
+                if (file) {
+                    const ext = (file.name.split('.').pop() || '').toLowerCase();
+                    if (!file.type.startsWith('image/') || !ALLOWED_IMG.includes(ext)) throw new Error('Screenshot must be a JPG or PNG image.');
+                    if (file.size > SHOT_MAX) throw new Error(`Screenshot is too large (${(file.size/1024).toFixed(0)} KB). Maximum is 500 KB.`);
+                    const path = `${UID}/${Date.now()}.${ext}`;
+                    const up = await db.storage.from(SHOT_BUCKET).upload(path, file, { contentType: file.type, upsert: false });
+                    if (up.error) throw new Error(up.error.message);
+                    screenshotPath = path;
+                }
+                await apiRequest('POST', '/tickets', { title, body: bodyText, screenshot_path: screenshotPath });
+                closeOvl('new-ovl');
+                loadTickets();
+            } catch (err) {
+                showErr(err.message);
+            } finally {
+                btn.disabled = false; btn.textContent = 'Send ticket';
+            }
+        }
+
+        async function openTicket(id) {
+            CURRENT_TICKET = id;
+            document.getElementById('v-reply').value = '';
+            document.getElementById('v-body').innerHTML = `<div class="loader">Loading…</div>`;
+            openOvl('view-ovl');
+
+            const [{ data: t }, { data: msgs }] = await Promise.all([
+                db.from('tickets').select('title, status, screenshot_path').eq('id', id).single(),
+                db.from('ticket_messages').select('author_role, body, created_at').eq('ticket_id', id).order('created_at', { ascending: true })
+            ]);
+            if (!t) { document.getElementById('v-body').innerHTML = `<div class="alert error" style="display:block;">Ticket not found.</div>`; return; }
+            document.getElementById('v-title').innerHTML = `${esc(t.title)} &nbsp; ${badge(t.status)}`;
+
+            let shotHtml = '';
+            if (t.screenshot_path) {
+                const { data: pub } = db.storage.from(SHOT_BUCKET).getPublicUrl(t.screenshot_path);
+                if (pub && pub.publicUrl) shotHtml = `<div class="shot"><a href="${esc(pub.publicUrl)}" target="_blank" rel="noopener"><img src="${esc(pub.publicUrl)}" alt="screenshot"></a></div>`;
+            }
+            const thread = (msgs || []).map((m, i) => {
+                const who = m.author_role === 'staff' ? 'Office' : MY_NAME;
+                return `<div class="msg ${esc(m.author_role)}">
+                    <div class="who">${esc(who)}</div>
+                    <div class="body">${esc(m.body)}</div>
+                    ${i === 0 ? shotHtml : ''}
+                    <div class="when">${fmt(m.created_at)}</div>
+                </div>`;
+            }).join('');
+            document.getElementById('v-body').innerHTML = thread || '<p class="hint">No messages.</p>';
+        }
+
+        async function sendReply() {
+            const ta = document.getElementById('v-reply');
+            const text = ta.value.trim();
+            if (!text) return;
+            const btn = document.getElementById('v-send');
+            btn.disabled = true; btn.textContent = 'Sending…';
+            try {
+                await apiRequest('POST', '/tickets/reply', { ticket_id: CURRENT_TICKET, body: text });
+                ta.value = '';
+                await openTicket(CURRENT_TICKET);
+                loadTickets();
+            } catch (err) {
+                alert(err.message);
+            } finally {
+                btn.disabled = false; btn.textContent = 'Send reply';
+            }
+        }
+    </script>
+</body>
+</html>

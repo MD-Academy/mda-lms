@@ -1316,3 +1316,145 @@ def student_my_diplomas(authorization: str = Header(...)):
     """Student: their issued diplomas + letters, with fresh signed download links."""
     user = _require_active_student(authorization)
     return {"items": _diploma_links(user.id)}
+
+
+# ── SUPPORT TICKETS ───────────────────────────────────────────
+
+class CreateTicketReq(BaseModel):
+    title: str
+    body: str
+    screenshot_path: Optional[str] = None
+
+class TicketReplyReq(BaseModel):
+    ticket_id: str
+    body: str
+
+class TicketStatusReq(BaseModel):
+    ticket_id: str
+    status: str
+
+
+def _verify_any(authorization: str):
+    """Verify the Bearer token; return (user, profile{role, full_name, email})."""
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header.")
+    token = authorization.split(" ", 1)[1]
+    try:
+        user = supabase.auth.get_user(token).user
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid session.")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid session.")
+    prof = supabase.table("profiles").select("role, full_name, email").eq("id", user.id).single().execute().data
+    if not prof:
+        raise HTTPException(status_code=403, detail="Account not found.")
+    return user, prof
+
+
+@app.post("/tickets")
+def create_ticket(body: CreateTicketReq, authorization: str = Header(...)):
+    """A student opens a new support ticket; the office is notified by email."""
+    user = _require_active_student(authorization)
+    prof = supabase.table("profiles").select("full_name").eq("id", user.id).single().execute().data or {}
+    title = (body.title or "").strip()
+    msg = (body.body or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Please add a short title.")
+    if not msg:
+        raise HTTPException(status_code=400, detail="Please describe the problem.")
+    if len(title) > 200:
+        title = title[:200]
+
+    try:
+        ins = supabase.table("tickets").insert({
+            "student_id": user.id, "title": title,
+            "screenshot_path": (body.screenshot_path or None),
+        }).execute().data
+        ticket_id = ins[0]["id"]
+        supabase.table("ticket_messages").insert({
+            "ticket_id": ticket_id, "author_id": user.id,
+            "author_role": "student", "body": msg,
+        }).execute()
+    except Exception as e:
+        logger.error("Ticket create failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Could not open the ticket: {str(e)}")
+
+    try:
+        subject, html = emails.ticket_opened_email(prof.get("full_name") or "A student", title, msg)
+        emails.send_email(emails.OFFICE_EMAIL, subject, html)
+    except Exception as e:
+        logger.error("Ticket office notification failed: %s", e)
+
+    return {"success": True, "id": ticket_id}
+
+
+@app.post("/tickets/reply")
+def reply_ticket(body: TicketReplyReq, authorization: str = Header(...)):
+    """Add a message to a ticket. Students may only reply on their own ticket;
+    staff may reply on any. The other party is emailed."""
+    from datetime import datetime, timezone
+    user, prof = _verify_any(authorization)
+    role = prof.get("role")
+    is_staff = role in ("admin", "superadmin")
+    msg = (body.body or "").strip()
+    if not msg:
+        raise HTTPException(status_code=400, detail="Your reply can't be empty.")
+
+    ticket = supabase.table("tickets").select("id, student_id, title").eq("id", body.ticket_id).single().execute().data
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found.")
+    if not is_staff and ticket["student_id"] != user.id:
+        raise HTTPException(status_code=403, detail="This isn't your ticket.")
+
+    try:
+        supabase.table("ticket_messages").insert({
+            "ticket_id": body.ticket_id, "author_id": user.id,
+            "author_role": "staff" if is_staff else "student", "body": msg,
+        }).execute()
+        supabase.table("tickets").update({"updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", body.ticket_id).execute()
+    except Exception as e:
+        logger.error("Ticket reply failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Could not send your reply: {str(e)}")
+
+    try:
+        if is_staff:
+            stud = supabase.table("profiles").select("full_name, email").eq("id", ticket["student_id"]).single().execute().data or {}
+            if stud.get("email") and emails.is_valid_email(stud["email"]):
+                subject, html = emails.ticket_update_email(stud.get("full_name"), ticket["title"], reply_text=msg)
+                emails.send_email(stud["email"], subject, html)
+        else:
+            subject, html = emails.ticket_office_reply_email(prof.get("full_name") or "A student", ticket["title"])
+            emails.send_email(emails.OFFICE_EMAIL, subject, html)
+    except Exception as e:
+        logger.error("Ticket reply notification failed: %s", e)
+
+    return {"success": True}
+
+
+@app.post("/tickets/status")
+def set_ticket_status(body: TicketStatusReq, _=Depends(get_admin_user), authorization: str = Header(...)):
+    """Staff set a ticket's status; the student is emailed."""
+    from datetime import datetime, timezone
+    if body.status not in ("open", "in_progress", "completed"):
+        raise HTTPException(status_code=400, detail="Invalid status.")
+    ticket = supabase.table("tickets").select("id, student_id, title, status").eq("id", body.ticket_id).single().execute().data
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found.")
+    if ticket["status"] == body.status:
+        return {"success": True, "unchanged": True}
+
+    try:
+        supabase.table("tickets").update({"status": body.status, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", body.ticket_id).execute()
+    except Exception as e:
+        logger.error("Ticket status update failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Could not update the status: {str(e)}")
+
+    try:
+        stud = supabase.table("profiles").select("full_name, email").eq("id", ticket["student_id"]).single().execute().data or {}
+        if stud.get("email") and emails.is_valid_email(stud["email"]):
+            subject, html = emails.ticket_update_email(stud.get("full_name"), ticket["title"], status=body.status)
+            emails.send_email(stud["email"], subject, html)
+    except Exception as e:
+        logger.error("Ticket status notification failed: %s", e)
+
+    return {"success": True}
