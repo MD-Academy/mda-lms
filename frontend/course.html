@@ -65,7 +65,7 @@
 
             const errBox = (what) => `<div class="empty-state"><h3 style="color:var(--red)">Couldn't load ${what}</h3><p>Please refresh the page. If it keeps happening, contact the office.</p></div>`;
 
-            const { data: course, error: courseErr } = await db.from('courses').select('id, name').eq('id', courseId).single();
+            const { data: course, error: courseErr } = await db.from('courses').select('id, name, expires_at').eq('id', courseId).single();
             if (courseErr && courseErr.code !== 'PGRST116') {  // PGRST116 = no rows (not enrolled / not found) → redirect; otherwise a real failure
                 console.error('[course] course failed to load:', courseErr);
                 renderLayout('courses', 'Course', '', auth.profile);
@@ -78,6 +78,7 @@
             document.getElementById('page-content').innerHTML = `
                 ${crumbs([{ label: 'My Courses', href: 'courses.html' }, { label: course.name }])}
                 <a class="btn btn-ghost" href="courses.html" style="margin-bottom:18px;">← All Courses</a>
+                ${course.expires_at ? `<div style="font-size:13px;color:var(--text-muted);margin:-6px 0 18px;display:flex;align-items:center;gap:6px;">🗓️ This course will expire on ${fmtDay(course.expires_at)}.</div>` : ''}
                 <div id="box"><div class="loader">Loading subjects…</div></div>
                 <div id="att-box" style="margin-top:24px;"></div>`;
             const box = document.getElementById('box');
