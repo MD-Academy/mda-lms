@@ -51,8 +51,9 @@
         <div class="ovl-box">
             <div class="ovl-head"><h3 id="s-title">Select university</h3><button class="ovl-close" onclick="closeOvl('select-ovl')">&times;</button></div>
             <div class="ovl-body">
-                <p style="margin:0 0 8px;font-size:14px;color:var(--text-muted);">Choose the degree(s) you're applying for at <strong id="s-uni"></strong>. You can pick more than one.</p>
+                <p style="margin:0 0 8px;font-size:14px;color:var(--text-muted);">Choose the degree(s) you're interested in at <strong id="s-uni"></strong>. You can pick more than one.</p>
                 <div id="s-degrees"></div>
+                <div style="background:#fff8e6;color:#8a6400;border:1px solid #f5e3b3;border-radius:10px;padding:10px 13px;font-size:12px;line-height:1.5;margin-top:12px;">Selecting here helps us guide you — it does not submit an application. To apply, follow the office's instructions.</div>
                 <div class="att-warn" id="s-alert" style="display:none;"></div>
                 <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;">
                     <button class="btn btn-ghost" onclick="closeOvl('select-ovl')">Cancel</button>
@@ -82,7 +83,7 @@
             const box = document.getElementById('page-content');
             box.innerHTML = `<div class="loader">Loading universities…</div>`;
             const [uRes, sRes] = await Promise.all([
-                db.from('universities').select('id, name, country, location, costs, website, description, degrees, exam_dates, image_url').order('name', { ascending: true }),
+                db.from('universities').select('id, name, country, location, costs, website, application_url, description, degrees, exam_dates, image_url').order('name', { ascending: true }),
                 db.from('university_selections').select('id, university_id, status, degrees, is_final_choice').eq('student_id', MY_ID)
             ]);
             if (uRes.error) {
@@ -106,8 +107,9 @@
             const finalName = finalSel ? (uniMap[finalSel.university_id] || {}).name : null;
             const summary = `
                 <div class="att-card" style="margin-bottom:22px;">
-                    <p style="margin:0;font-size:14px;color:var(--text-muted);">Pick the universities you're <strong>applying</strong> to, mark the ones that <strong>accepted</strong> you, then star the one you <strong>chose to attend</strong>. Only you can change these — the office sees your choices.</p>
-                    ${finalName ? `<p style="margin:10px 0 0;font-size:14px;"><span class="sel-status sel-final">★ Chosen to attend</span> <strong>${esc(finalName)}</strong></p>` : ''}
+                    <p style="margin:0;font-size:14px;color:var(--text-muted);"><strong>Select</strong> the universities you're interested in, mark the ones that <strong>accepted</strong> you, then star the one you <strong>chose to attend</strong>. Only you can change these — the office sees your selections.</p>
+                    <div style="background:#fff8e6;color:#8a6400;border:1px solid #f5e3b3;border-radius:10px;padding:11px 14px;font-size:13px;line-height:1.5;margin-top:12px;">ℹ️ Selecting a university here helps the academy guide you toward application — it does <strong>not</strong> mean you have applied. To actually apply, follow the office's instructions.</div>
+                    ${finalName ? `<p style="margin:12px 0 0;font-size:14px;"><span class="sel-status sel-final">★ Chosen to attend</span> <strong>${esc(finalName)}</strong></p>` : ''}
                 </div>`;
 
             const cards = UNIS.map(u => {
@@ -116,18 +118,18 @@
                 let statusLine = '';
                 let actions = '';
                 if (!sel) {
-                    actions = `<button class="btn btn-primary" style="flex:1;" onclick="openSelect('${u.id}')">Apply</button>
+                    actions = `<button class="btn btn-primary" style="flex:1;" onclick="openSelect('${u.id}')">Select</button>
                                <button class="btn btn-ghost" onclick="openDetails('${u.id}')">Details</button>`;
                 } else {
                     const degs = (sel.degrees || []).join(', ') || 'No degree set';
                     const badge = sel.is_final_choice
                         ? `<span class="sel-status sel-final">★ Chosen</span>`
-                        : (sel.status === 'accepted' ? `<span class="sel-status sel-accepted">Accepted</span>` : `<span class="sel-status sel-applying">Applying</span>`);
+                        : (sel.status === 'accepted' ? `<span class="sel-status sel-accepted">Accepted</span>` : `<span class="sel-status sel-applying">Selected</span>`);
                     statusLine = `<div>${badge} <span style="font-size:12px;color:var(--text-muted);">${esc(degs)}</span></div>`;
                     actions = `
                         <button class="btn btn-ghost btn-sm" onclick="openSelect('${u.id}')">Edit degrees</button>
                         ${sel.status === 'accepted'
-                            ? `<button class="btn btn-ghost btn-sm" onclick="setStatus('${u.id}','applying')">Set to applying</button>`
+                            ? `<button class="btn btn-ghost btn-sm" onclick="setStatus('${u.id}','applying')">Back to selected</button>`
                             : `<button class="btn btn-ghost btn-sm" onclick="setStatus('${u.id}','accepted')">I was accepted ✓</button>`}
                         ${sel.status === 'accepted'
                             ? (sel.is_final_choice
@@ -165,7 +167,10 @@
                 ${(u.degrees || []).length ? `<p style="margin:0 0 10px;"><strong style="color:var(--navy-800);">Degrees offered:</strong> ${u.degrees.map(esc).join(', ')}</p>` : ''}
                 ${(u.exam_dates || []).length ? `<p style="margin:0 0 10px;"><strong style="color:var(--navy-800);">Exam date(s):</strong> ${u.exam_dates.map(d => esc(fmtExamDate(d))).join(' · ')}</p>` : ''}
                 ${u.description ? `<p style="margin:0 0 10px;white-space:pre-line;line-height:1.6;">${esc(u.description)}</p>` : ''}
-                ${u.website ? `<a class="mt-link" href="${esc(u.website)}" target="_blank" rel="noopener noreferrer">🔗 Visit website</a>` : ''}`;
+                <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;">
+                    ${u.application_url ? `<a class="mt-link" href="${esc(u.application_url)}" target="_blank" rel="noopener noreferrer">📝 Application link</a>` : ''}
+                    ${u.website ? `<a class="mt-link" href="${esc(u.website)}" target="_blank" rel="noopener noreferrer">🔗 Visit website</a>` : ''}
+                </div>`;
             openOvl('details-ovl');
         }
 
@@ -174,7 +179,7 @@
             selUniId = uid;
             const sel = MY[uid];
             const chosen = sel ? (sel.degrees || []) : [];
-            document.getElementById('s-title').textContent = sel ? 'Edit degrees' : 'Apply to university';
+            document.getElementById('s-title').textContent = sel ? 'Edit degrees' : 'Select university';
             document.getElementById('s-uni').textContent = u.name;
             document.getElementById('s-alert').style.display = 'none';
             document.getElementById('s-degrees').innerHTML = (u.degrees || []).length
