@@ -42,9 +42,11 @@ LOGO_PATH = os.path.join(ASSETS_DIR, "mda-logo.png")
 # so they're independent of the artwork's pixel resolution. Tune these to line
 # the text up with your background, or drop in a new "background" file.
 DIPLOMA_CONFIG = {
-    # File in assets/ holding the full-page certificate artwork (landscape).
-    # If missing, a built-in vector certificate is drawn instead.
-    "background": "diploma-bg.png",
+    # Base name (no extension) of the full-page certificate artwork in assets/,
+    # landscape. Either diploma-bg.jpg or diploma-bg.png is picked up
+    # automatically (JPG preferred — smaller file). If neither is present, a
+    # built-in vector certificate is drawn instead.
+    "background": "diploma-bg",
 
     # The student's name. "max_size" shrinks automatically so long names stay
     # on one line. "mask" paints a parchment rectangle first, to hide a
@@ -89,11 +91,26 @@ def _fit_font(c, text, font, max_size, min_size, max_width):
     return size
 
 
+def _background_path():
+    """Locate the artwork. Accepts an explicit filename with extension, or a
+    base name we resolve to .jpg/.jpeg/.png (JPG preferred — smaller)."""
+    bg = (DIPLOMA_CONFIG.get("background") or "").strip()
+    if not bg:
+        return None
+    if os.path.splitext(bg)[1]:               # already has an extension
+        p = os.path.join(ASSETS_DIR, bg)
+        return p if os.path.exists(p) else None
+    for ext in (".jpg", ".jpeg", ".png"):     # probe by base name
+        p = os.path.join(ASSETS_DIR, bg + ext)
+        if os.path.exists(p):
+            return p
+    return None
+
+
 def _draw_background(c, width, height):
     """Draw the certificate artwork full-page. Returns True if an image was used."""
-    bg = DIPLOMA_CONFIG.get("background")
-    path = os.path.join(ASSETS_DIR, bg) if bg else None
-    if path and os.path.exists(path):
+    path = _background_path()
+    if path:
         try:
             c.drawImage(path, 0, 0, width=width, height=height,
                         preserveAspectRatio=False, mask="auto")

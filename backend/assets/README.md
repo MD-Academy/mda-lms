@@ -7,9 +7,11 @@ final grade onto a full-page background image.
 
 1. Export your diploma artwork as a **landscape** image and save it here as:
 
-       mda-lms/backend/assets/diploma-bg.png
+       mda-lms/backend/assets/diploma-bg.jpg     (or diploma-bg.png)
 
-   (A4 landscape ratio, ~300 DPI looks best — e.g. 3508 × 2480 px. PNG or JPG.)
+   (A4 landscape ratio, ~300 DPI looks best — e.g. 3508 × 2480 px.
+   JPG is preferred — smaller file. Both extensions are picked up
+   automatically; JPG wins if both are present.)
 
 2. Ideally export it **without** the sample "STUDENT FULL NAME" line — the real
    name is drawn in that spot. If your artwork keeps the placeholder, leave
