@@ -149,7 +149,8 @@ class CreateStudentRequest(BaseModel):
     email: str
     password: Optional[str] = None
     expiry_date: Optional[str] = None
-    course_id: Optional[str] = None   # optional: enrol into this course on creation
+    course_id: Optional[str] = None          # legacy: single course (still accepted)
+    course_ids: Optional[List[str]] = None   # enrol into these courses on creation (>=1 required)
 
 
 class CreateAdminRequest(BaseModel):
@@ -216,9 +217,15 @@ def health_check():
 
 @app.post("/admin/create-student")
 def create_student(body: CreateStudentRequest, _=Depends(get_superadmin_user)):
-    """Create a single student account."""
+    """Create a single student account. A student must be enrolled in at least one course."""
     if not emails.is_valid_email(body.email):
         raise HTTPException(status_code=400, detail=f"'{body.email}' is not a valid email address.")
+
+    # Normalise the course list (accept course_ids or legacy course_id) — at least one is required.
+    course_ids = list(dict.fromkeys((body.course_ids or []) + ([body.course_id] if body.course_id else [])))
+    if not course_ids:
+        raise HTTPException(status_code=400, detail="A student must be assigned to at least one course.")
+
     password = body.password or generate_password()
 
     try:
@@ -251,12 +258,12 @@ def create_student(body: CreateStudentRequest, _=Depends(get_superadmin_user)):
             detail=f"User was created in auth but profile update failed: {str(e)}"
         )
 
-    # Optionally enrol into a course right away. Never break creation if this fails.
-    if body.course_id:
+    # Enrol into the chosen course(s) right away. Never break creation if this fails.
+    for cid in course_ids:
         try:
-            supabase.table("course_enrollments").insert({"course_id": body.course_id, "student_id": user_id}).execute()
+            supabase.table("course_enrollments").insert({"course_id": cid, "student_id": user_id}).execute()
         except Exception as e:
-            logger.error("Auto-enrol failed for %s into %s: %s", user_id, body.course_id, e)
+            logger.error("Auto-enrol failed for %s into %s: %s", user_id, cid, e)
 
     # Welcome email with login details. Never let a mail failure break creation —
     # the admin still gets the credentials in the response to hand over manually.
@@ -275,7 +282,10 @@ def create_student(body: CreateStudentRequest, _=Depends(get_superadmin_user)):
 
 @app.post("/admin/bulk-create-students")
 def bulk_create_students(body: BulkCreateRequest, _=Depends(get_superadmin_user)):
-    """Bulk create student accounts from a list."""
+    """Bulk create student accounts from a list. All are enrolled into one required course."""
+    if not body.course_id:
+        raise HTTPException(status_code=400, detail="A course is required — every imported student must be enrolled in one.")
+
     created = []
     failed = []
 
