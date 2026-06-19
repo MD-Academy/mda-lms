@@ -18,6 +18,45 @@
     <script src="js/layout.js"></script>
     <script>
         function esc(s){ return s ? String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) : ''; }
+        function fmtDay(d){ return d ? new Date(d + 'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : ''; }
+
+        // Read-only attendance for this student in this course. They see only their own marks (enforced by RLS).
+        async function loadAttendance(courseId){
+            const box = document.getElementById('att-box');
+            if (!box) return;
+            const { data: sessions, error: sErr } = await db.from('class_sessions')
+                .select('id, session_date').eq('course_id', courseId).order('session_date', { ascending: true });
+            if (sErr) { console.error('[course] attendance failed to load:', sErr); box.innerHTML = ''; return; }
+            if (!sessions || sessions.length === 0) { box.innerHTML = ''; return; }   // nothing to show until a class is held
+
+            const sesIds = sessions.map(s => s.id);
+            const { data: marks } = await db.from('attendance').select('session_id, present').in('session_id', sesIds);
+            const mp = {}; (marks || []).forEach(m => { mp[m.session_id] = m.present; });
+
+            let attended = 0;
+            const dayRows = sessions.map(s => {
+                const ok = mp[s.id] === true; if (ok) attended++;
+                return `<div class="att-day"><span class="d">${fmtDay(s.session_date)}</span><span class="att-badge ${ok ? 'ok' : 'no'}">${ok ? '✓ Present' : '✗ Absent'}</span></div>`;
+            }).join('');
+            const pct = Math.round(attended / sessions.length * 100);
+            const color = pct >= 100 ? 'att-green' : (pct >= 75 ? 'att-amber' : 'att-red');
+            const warn = pct < 75
+                ? `<div class="att-warn">⚠️ You've missed a high number of classes (${attended} of ${sessions.length} attended). Please contact your teacher to remediate your missing lessons.</div>`
+                : '';
+            box.innerHTML = `
+                <div class="section">
+                    <div class="section-title">🗓️ My Attendance</div>
+                    <div class="att-card">
+                        <div class="att-summary">
+                            <div class="att-big ${color}">${pct}%</div>
+                            <div class="att-sub">${attended} of ${sessions.length} class${sessions.length === 1 ? '' : 'es'} attended</div>
+                        </div>
+                        ${warn}
+                        <div class="att-list">${dayRows}</div>
+                    </div>
+                </div>`;
+        }
+
         (async () => {
             const auth = await requireStudent();
             if (!auth) return;
@@ -39,8 +78,10 @@
             document.getElementById('page-content').innerHTML = `
                 ${crumbs([{ label: 'My Courses', href: 'courses.html' }, { label: course.name }])}
                 <a class="btn btn-ghost" href="courses.html" style="margin-bottom:18px;">← All Courses</a>
-                <div id="box"><div class="loader">Loading subjects…</div></div>`;
+                <div id="box"><div class="loader">Loading subjects…</div></div>
+                <div id="att-box" style="margin-top:24px;"></div>`;
             const box = document.getElementById('box');
+            loadAttendance(courseId);   // independent of subjects; renders only once classes exist
 
             const { data: cs, error: csErr } = await db.from('course_subjects').select('room_id').eq('course_id', courseId);
             if (csErr) { console.error('[course] subjects failed to load:', csErr); box.innerHTML = errBox('subjects'); return; }
