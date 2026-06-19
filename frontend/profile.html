@@ -72,6 +72,11 @@
                         <div class="form-field"><label>Email</label><input type="text" value="${esc(email)}" disabled></div>
                         <button type="button" class="btn btn-primary" id="det-btn">Save Title</button>
                     </div>
+                    <div class="panel" id="certs-panel" style="margin-bottom:22px;display:none;">
+                        <div class="section-title" style="margin-bottom:6px;">🎓 My Certificates</div>
+                        <p style="color:var(--text-muted);font-size:13px;margin-bottom:16px;">Your diploma and recommendation letter, awarded by the Academy.</p>
+                        <div id="certs-list"></div>
+                    </div>
                     <div class="panel">
                         <div class="section-title" style="margin-bottom:16px;">Change Password</div>
                         <div class="alert" id="pw-alert" style="display:none;"></div>
@@ -181,7 +186,34 @@
             });
 
             renderMfaSection('mfa-section');
+            loadCertificates();
         })();
+
+        // ── MY CERTIFICATES (diploma + recommendation letter) ──
+        async function loadCertificates() {
+            const panel = document.getElementById('certs-panel');
+            const list = document.getElementById('certs-list');
+            try {
+                const res = await apiRequest('GET', '/student/my-diplomas');
+                const items = (res && res.items) || [];
+                if (!items.length) return;   // keep the panel hidden until something is issued
+                list.innerHTML = items.map(it => {
+                    const when = it.issued_at ? new Date(it.issued_at).toLocaleDateString() : '';
+                    const dl = (url, label, icon) => url
+                        ? `<a class="btn btn-primary btn-sm" href="${esc(url)}" target="_blank" rel="noopener" style="margin-right:8px;">${icon} ${label}</a>`
+                        : `<span class="hint">${label} unavailable</span>`;
+                    return `<div style="border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px;">
+                        <div style="font-weight:700;color:var(--navy-800);margin-bottom:4px;">${esc(it.course_name || 'Premedical Studies')}</div>
+                        <div class="hint" style="margin-bottom:12px;">Issued ${esc(when)}${it.final_grade ? ' · ' + esc(it.final_grade) : ''}</div>
+                        ${dl(it.diploma_url, 'Download Diploma', '📜')}
+                        ${dl(it.letter_url, 'Recommendation Letter', '✉️')}
+                    </div>`;
+                }).join('');
+                panel.style.display = 'block';
+            } catch (e) {
+                // Quietly leave the panel hidden if the request fails.
+            }
+        }
     </script>
 </body>
 </html>

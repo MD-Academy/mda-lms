@@ -1096,3 +1096,223 @@ def student_quiz_submit(body: QuizSubmitReq, authorization: str = Header(...)):
     }).execute()
 
     return {"score": score, "passed": passed, "total": total, "correct": correct, "wrong": wrong}
+
+
+# ── GRADUATION: DIPLOMA + RECOMMENDATION LETTER ───────────────
+
+class GradStatusReq(BaseModel):
+    student_id: str
+    course_id: str
+
+class DraftLetterReq(BaseModel):
+    student_id: str
+    course_id: str
+    final_grade: Optional[str] = None
+    remark: Optional[str] = None
+
+class IssueDiplomaReq(BaseModel):
+    student_id: str
+    course_id: str
+    final_grade: Optional[str] = None
+    remark: Optional[str] = None
+    recommendation_text: str
+
+
+def _graduation_status(student_id: str, course_id: str) -> dict:
+    """Compute a student's standing for a course: which exams count toward
+    graduation, how many they've completed, the GPA, and whether all are passed."""
+    course = supabase.table("courses").select("name").eq("id", course_id).single().execute().data
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found.")
+
+    ec = supabase.table("exam_courses").select("exam_id").eq("course_id", course_id).execute().data or []
+    exam_ids = [r["exam_id"] for r in ec]
+    exams = []
+    if exam_ids:
+        exams = supabase.table("exams").select("id, title, pass_threshold, counts_toward_graduation").in_("id", exam_ids).execute().data or []
+    mandatory = [e for e in exams if e.get("counts_toward_graduation", True)]
+
+    attempts = {}
+    if exam_ids:
+        ats = supabase.table("exam_attempts").select("exam_id, score, passed").eq("student_id", student_id).in_("exam_id", exam_ids).execute().data or []
+        for a in ats:
+            attempts[a["exam_id"]] = a
+
+    rows, scored, total_score, all_passed = [], 0, 0, True
+    for e in mandatory:
+        a = attempts.get(e["id"])
+        has = a is not None and a.get("score") is not None
+        passed = bool(a and a.get("passed"))
+        if has:
+            scored += 1
+            total_score += a["score"]
+        if not has or not passed:
+            all_passed = False
+        rows.append({
+            "title": e.get("title"), "score": a["score"] if has else None,
+            "passed": passed, "pass_threshold": e.get("pass_threshold"),
+        })
+
+    gpa = round(total_score / scored) if scored else None
+    return {
+        "course_name": course.get("name"),
+        "mandatory_total": len(mandatory),
+        "completed": scored,
+        "gpa": gpa,
+        "all_completed": (len(mandatory) > 0 and scored == len(mandatory)),
+        "all_passed": (len(mandatory) > 0 and all_passed and scored == len(mandatory)),
+        "exams": rows,
+    }
+
+
+def _existing_diploma(student_id: str, course_id: str):
+    rows = supabase.table("diplomas").select("*").eq("student_id", student_id).eq("course_id", course_id).limit(1).execute().data
+    return rows[0] if rows else None
+
+
+@app.post("/graduation/status")
+def graduation_status(body: GradStatusReq, _=Depends(get_admin_user)):
+    st = _graduation_status(body.student_id, body.course_id)
+    existing = _existing_diploma(body.student_id, body.course_id)
+    st["issued"] = bool(existing)
+    if existing:
+        st["issued_at"] = existing.get("issued_at")
+        st["final_grade"] = existing.get("final_grade")
+        st["remark"] = existing.get("remark")
+    return st
+
+
+@app.post("/graduation/draft-letter")
+def graduation_draft_letter(body: DraftLetterReq, _=Depends(get_admin_user)):
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise HTTPException(status_code=500, detail="Letter drafting isn't configured yet. Add ANTHROPIC_API_KEY in the backend environment.")
+    prof = supabase.table("profiles").select("full_name").eq("id", body.student_id).single().execute().data
+    if not prof:
+        raise HTTPException(status_code=404, detail="Student not found.")
+    st = _graduation_status(body.student_id, body.course_id)
+    import diplomas
+    try:
+        text = diplomas.draft_recommendation(
+            student_name=prof.get("full_name") or "the student",
+            course_name=st["course_name"],
+            gpa=st["gpa"],
+            final_grade=body.final_grade,
+            remark=body.remark,
+        )
+    except Exception as e:
+        logger.error("Letter draft (Claude) failed: %s", e)
+        raise HTTPException(status_code=502, detail="Couldn't draft the letter with the AI service. Please try again.")
+    return {"success": True, "text": text}
+
+
+@app.post("/graduation/issue")
+def graduation_issue(body: IssueDiplomaReq, admin=Depends(get_admin_user)):
+    """Generate the diploma + recommendation letter, store them, record the
+    award, and email both PDFs to the student. One record per student+course
+    (re-issuing replaces and re-sends)."""
+    if not (body.recommendation_text or "").strip():
+        raise HTTPException(status_code=400, detail="The recommendation letter text can't be empty.")
+
+    prof = supabase.table("profiles").select("full_name, email").eq("id", body.student_id).single().execute().data
+    if not prof:
+        raise HTTPException(status_code=404, detail="Student not found.")
+    student_name = prof.get("full_name") or "Student"
+    student_email = prof.get("email")
+
+    st = _graduation_status(body.student_id, body.course_id)
+    gpa = st["gpa"]
+
+    import diplomas
+    try:
+        diploma_pdf = diplomas.build_diploma_pdf(student_name, final_grade=body.final_grade)
+        letter_pdf = diplomas.build_recommendation_pdf(student_name, body.recommendation_text)
+    except Exception as e:
+        logger.error("Diploma/letter PDF build failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Could not generate the documents: {str(e)}")
+
+    base = f"{body.student_id}/{body.course_id}"
+    diploma_path = f"{base}/diploma.pdf"
+    letter_path = f"{base}/recommendation.pdf"
+    try:
+        for path, data in ((diploma_path, diploma_pdf), (letter_path, letter_pdf)):
+            # Remove any previous version first so re-issuing always overwrites
+            # cleanly (avoids depending on a particular upsert-option spelling).
+            try:
+                supabase.storage.from_("diplomas").remove([path])
+            except Exception:
+                pass
+            supabase.storage.from_("diplomas").upload(
+                path, data, {"content-type": "application/pdf"}
+            )
+    except Exception as e:
+        logger.error("Diploma upload failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Could not save the documents: {str(e)}")
+
+    record = {
+        "student_id": body.student_id,
+        "course_id": body.course_id,
+        "gpa": gpa,
+        "final_grade": (body.final_grade or "").strip() or None,
+        "remark": (body.remark or "").strip() or None,
+        "recommendation_text": body.recommendation_text.strip(),
+        "diploma_path": diploma_path,
+        "letter_path": letter_path,
+        "approved_by": admin.id,
+        "issued_at": date.today().isoformat() + "T00:00:00Z",
+    }
+    try:
+        supabase.table("diplomas").upsert(record, on_conflict="student_id,course_id").execute()
+    except Exception as e:
+        logger.error("Diploma record upsert failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Could not record the award: {str(e)}")
+
+    emailed = False
+    if student_email and emails.is_valid_email(student_email):
+        import base64 as _b64
+        subject, html = emails.diploma_email(student_name, st["course_name"])
+        attachments = [
+            {"filename": "Premedical-Studies-Diploma.pdf", "content": _b64.b64encode(diploma_pdf).decode("ascii")},
+            {"filename": "Letter-of-Recommendation.pdf", "content": _b64.b64encode(letter_pdf).decode("ascii")},
+        ]
+        emailed = emails.send_email(student_email, subject, html, attachments=attachments)
+
+    return {"success": True, "emailed": emailed, "gpa": gpa}
+
+
+def _diploma_links(student_id: str, course_id: str = None) -> list:
+    q = supabase.table("diplomas").select("*").eq("student_id", student_id)
+    if course_id:
+        q = q.eq("course_id", course_id)
+    recs = q.execute().data or []
+    out = []
+    for r in recs:
+        course = supabase.table("courses").select("name").eq("id", r["course_id"]).single().execute().data
+        links = {}
+        for key, path in (("diploma_url", r.get("diploma_path")), ("letter_url", r.get("letter_path"))):
+            if path:
+                try:
+                    links[key] = supabase.storage.from_("diplomas").create_signed_url(path, 3600)["signedURL"]
+                except Exception:
+                    links[key] = None
+        out.append({
+            "course_id": r["course_id"],
+            "course_name": (course or {}).get("name"),
+            "issued_at": r.get("issued_at"),
+            "final_grade": r.get("final_grade"),
+            "gpa": r.get("gpa"),
+            **links,
+        })
+    return out
+
+
+@app.post("/graduation/links")
+def graduation_links(body: GradStatusReq, _=Depends(get_admin_user)):
+    """Admin: fresh signed download links for an issued diploma + letter."""
+    return {"items": _diploma_links(body.student_id, body.course_id)}
+
+
+@app.get("/student/my-diplomas")
+def student_my_diplomas(authorization: str = Header(...)):
+    """Student: their issued diplomas + letters, with fresh signed download links."""
+    user = _require_active_student(authorization)
+    return {"items": _diploma_links(user.id)}

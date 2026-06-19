@@ -79,15 +79,27 @@ def send_batch(messages: list) -> int:
     return sent
 
 
-def send_email(to: str, subject: str, html: str) -> bool:
+def send_email(to: str, subject: str, html: str, attachments: list = None) -> bool:
     """Send one email through Resend. Returns True on success, False otherwise.
-    Never raises."""
+    Never raises.
+
+    attachments (optional): [{"filename": str, "content": <base64 str>}].
+    """
     if not RESEND_API_KEY:
         logger.warning("RESEND_API_KEY not set — skipping email to %s (%r)", to, subject)
         return False
     if not is_valid_email(to):
         logger.warning("Refusing to send to invalid address: %r", to)
         return False
+    payload = {
+        "from": EMAIL_FROM,
+        "to": [to],
+        "reply_to": EMAIL_REPLY_TO,
+        "subject": subject,
+        "html": html,
+    }
+    if attachments:
+        payload["attachments"] = attachments
     try:
         resp = httpx.post(
             "https://api.resend.com/emails",
@@ -95,14 +107,8 @@ def send_email(to: str, subject: str, html: str) -> bool:
                 "Authorization": f"Bearer {RESEND_API_KEY}",
                 "Content-Type": "application/json",
             },
-            json={
-                "from": EMAIL_FROM,
-                "to": [to],
-                "reply_to": EMAIL_REPLY_TO,
-                "subject": subject,
-                "html": html,
-            },
-            timeout=15.0,
+            json=payload,
+            timeout=30.0,
         )
         if resp.status_code >= 400:
             logger.error("Resend rejected email to %s: %s %s", to, resp.status_code, resp.text)
@@ -253,6 +259,31 @@ def expiry_email(full_name: str, email: str, expiry_date: str, days_left: int):
       {_button("Log in to the portal", STUDENT_URL)}
       {_login_help(email)}"""
     return ("Your portal access is expiring soon", _wrap("⏳ Access expiring soon", body))
+
+
+def diploma_email(full_name: str, course_name: str):
+    """Returns (subject, html) for the congratulations email that carries the
+    diploma + recommendation letter as attachments."""
+    body = f"""\
+      {_greeting(full_name)}
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">
+        Congratulations on completing the <strong>{_esc(course_name)}</strong> at the
+        Medical Doctor International Academy! 🎓 It has been a pleasure to support you in your
+        preparation for medical studies.</p>
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">
+        Attached to this email you'll find two documents:</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f7f9fc;border:1px solid #e6ecf4;border-radius:10px;margin:6px 0 14px;">
+        <tr><td style="padding:16px 18px;font-size:15px;line-height:1.9;color:#334155;">
+          📜 <strong>Your Premedical Studies Diploma</strong><br>
+          ✉️ <strong>Your Letter of Recommendation</strong>
+        </td></tr>
+      </table>
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">
+        You can also download them anytime from the <strong>My Profile</strong> page in your student portal.</p>
+      {_button("Open the portal", STUDENT_URL)}
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">
+        We wish you every success on the next step of your journey toward becoming a doctor.</p>"""
+    return ("🎓 Congratulations — your diploma & recommendation letter", _wrap("Congratulations! 🎓", body))
 
 
 def reset_link_email(full_name: str, action_link: str):
