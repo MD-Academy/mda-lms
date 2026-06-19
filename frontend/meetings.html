@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="assets/images/favicon.png?v=1">
+    <title>Medical Doctor Academy — Personal Meetings</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/student.css">
+</head>
+<body>
+    <div class="layout" id="app-layout"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/layout.js"></script>
+    <script>
+        function esc(s){ return s ? String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) : ''; }
+        function hhmm(t){ return (t || '').slice(0,5); }
+        function fmtDay(d){ return d ? new Date(d + 'T00:00:00').toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short',year:'numeric'}) : ''; }
+        function genSlots(start, end, mins){
+            const toMin = t => { const [h,m] = hhmm(t).split(':').map(Number); return h*60+m; };
+            const pad = n => String(n).padStart(2,'0');
+            const fromMin = v => `${pad(Math.floor(v/60))}:${pad(v%60)}`;
+            const s = toMin(start), e = toMin(end), out = [];
+            for (let t = s; t + mins <= e; t += mins) out.push(fromMin(t));
+            return out;
+        }
+        function slotLabel(start, mins){
+            const [h,m] = start.split(':').map(Number);
+            const end = h*60 + m + mins; const pad = n => String(n).padStart(2,'0');
+            return `${start}–${pad(Math.floor(end/60)%24)}:${pad(end%60)}`;
+        }
+
+        let MY_ID = null, MTS = [], BK = {}, CN = {};
+
+        function myBookingSlot(meetingId){
+            const b = BK[meetingId] || {};
+            return Object.keys(b).find(slot => b[slot].student_id === MY_ID) || null;
+        }
+
+        function render(){
+            const box = document.getElementById('page-content');
+            const now = new Date();
+            // Hide meetings whose date + end time has already passed.
+            const visible = MTS.filter(m => new Date(`${m.meeting_date}T${hhmm(m.end_time)}:00`) >= now);
+            if (visible.length === 0){
+                box.innerHTML = `<div class="empty-state" style="padding:48px;"><h3>No personal meetings scheduled</h3><p>When your teacher opens a meeting for one of your courses, it'll appear here for you to pick a time.</p></div>`;
+                return;
+            }
+            box.innerHTML = visible.map(m => {
+                const slots = genSlots(m.start_time, m.end_time, m.slot_minutes);
+                const booked = BK[m.id] || {};
+                const mine = myBookingSlot(m.id);
+                const grid = slots.map(s => {
+                    const b = booked[s];
+                    if (b && b.student_id === MY_ID) {
+                        return `<div class="slot slot-mine" onclick="onSlot('${m.id}','${s}')" title="Click to cancel your booking"><div class="slot-t">${slotLabel(s, m.slot_minutes)}</div><div class="slot-n">✓ Booked (you)</div></div>`;
+                    }
+                    if (b) {
+                        return `<div class="slot slot-taken"><div class="slot-t">${slotLabel(s, m.slot_minutes)}</div><div class="slot-n">${esc(b.student_name || 'Booked')}</div></div>`;
+                    }
+                    return `<div class="slot slot-free" onclick="onSlot('${m.id}','${s}')" title="Click to book this time"><div class="slot-t">${slotLabel(s, m.slot_minutes)}</div><div class="slot-n">Book</div></div>`;
+                }).join('');
+                const link = m.link
+                    ? `<a class="mt-link" href="${esc(m.link)}" target="_blank" rel="noopener noreferrer">🔗 Open meeting link</a>`
+                    : `<p class="hint-muted" style="margin-top:16px;color:var(--text-muted);font-size:13px;">Your teacher hasn't added the meeting link yet — check back closer to the date.</p>`;
+                return `
+                    <div class="section">
+                        <div class="section-title">📅 ${esc(CN[m.course_id] || 'Course')} — ${fmtDay(m.meeting_date)}</div>
+                        <div class="att-card">
+                            <p style="margin:0 0 4px;font-size:14px;color:var(--text-muted);">${hhmm(m.start_time)}–${hhmm(m.end_time)} · ${m.slot_minutes}-minute slots${mine ? ` · your slot: <strong style="color:#15803d;">${slotLabel(mine, m.slot_minutes)}</strong>` : ''}</p>
+                            <p style="margin:0 0 6px;font-size:13px;color:var(--text-muted);">Click a free time to book it. You can pick one slot — click your green slot to cancel or move it.</p>
+                            <div class="slot-grid">${grid}</div>
+                            ${link}
+                        </div>
+                    </div>`;
+            }).join('');
+        }
+
+        async function reloadBookings(){
+            BK = {};
+            if (!MTS.length) return;
+            const ids = MTS.map(m => m.id);
+            const { data } = await db.from('meeting_bookings').select('meeting_id, slot_time, student_id, student_name').in('meeting_id', ids);
+            (data || []).forEach(b => {
+                if (!BK[b.meeting_id]) BK[b.meeting_id] = {};
+                BK[b.meeting_id][b.slot_time] = { student_id: b.student_id, student_name: b.student_name };
+            });
+        }
+
+        async function onSlot(meetingId, slot){
+            const booked = BK[meetingId] || {};
+            const b = booked[slot];
+            if (b && b.student_id !== MY_ID) return;   // someone else's slot — not selectable
+
+            if (b && b.student_id === MY_ID) {
+                if (!confirm(`Cancel your booking at ${slot}?`)) return;
+                const { error } = await db.from('meeting_bookings').delete().eq('meeting_id', meetingId).eq('student_id', MY_ID);
+                if (error) { alert(`Couldn't cancel: ${error.message}`); return; }
+                await reloadBookings(); render(); return;
+            }
+
+            // Free slot. If they already hold another slot here, move it.
+            const mine = myBookingSlot(meetingId);
+            if (mine) {
+                if (!confirm(`Move your booking from ${mine} to ${slot}?`)) return;
+                const del = await db.from('meeting_bookings').delete().eq('meeting_id', meetingId).eq('student_id', MY_ID);
+                if (del.error) { alert(`Couldn't update: ${del.error.message}`); return; }
+            }
+            const { error } = await db.from('meeting_bookings').insert({ meeting_id: meetingId, slot_time: slot, student_id: MY_ID });
+            if (error) {
+                // 23505 = slot (or one-per-student) unique violation → someone grabbed it first.
+                await reloadBookings(); render();
+                alert(/duplicate|unique|23505/i.test(error.message) ? 'That time was just taken — please pick another.' : `Couldn't book: ${error.message}`);
+                return;
+            }
+            await reloadBookings(); render();
+        }
+
+        (async () => {
+            const auth = await requireStudent();
+            if (!auth) return;
+            const { data: { session } } = await db.auth.getSession();
+            MY_ID = session.user.id;
+            renderLayout('meetings', 'Personal Meetings', 'Book your one-on-one time with the teacher', auth.profile);
+            document.getElementById('page-content').innerHTML = `<div class="loader">Loading meetings…</div>`;
+
+            const { data: meetings, error } = await db.from('meetings')
+                .select('id, course_id, meeting_date, start_time, end_time, slot_minutes, link')
+                .order('meeting_date', { ascending: true });
+            if (error) {
+                console.error('[meetings] failed to load:', error);
+                document.getElementById('page-content').innerHTML = `<div class="empty-state" style="padding:48px;"><h3 style="color:var(--red)">Couldn't load meetings</h3><p>Please refresh. If it keeps happening, contact the office.</p></div>`;
+                return;
+            }
+            MTS = meetings || [];
+
+            // Course names for the meetings we can see.
+            const courseIds = [...new Set(MTS.map(m => m.course_id))];
+            if (courseIds.length) {
+                const { data: cs } = await db.from('courses').select('id, name').in('id', courseIds);
+                (cs || []).forEach(c => { CN[c.id] = c.name; });
+            }
+            await reloadBookings();
+            render();
+        })();
+    </script>
+</body>
+</html>

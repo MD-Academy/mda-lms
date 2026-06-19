@@ -154,6 +154,22 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .att-badge.ok { background: #e7f7ee; color: #15803d; }
 .att-badge.no { background: #fdeaea; color: #dc2626; }
 
+/* Personal Meetings — slot grid (student) */
+.slot-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.slot { min-width: 138px; border: 1.5px solid var(--border); border-radius: 10px; padding: 10px 12px; text-align: center; line-height: 1.35; background: var(--card); user-select: none; }
+.slot .slot-t { font-weight: 700; font-size: 13px; color: var(--navy-800); }
+.slot .slot-n { font-size: 12px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; }
+.slot-free { cursor: pointer; transition: background .12s, border-color .12s; }
+.slot-free .slot-n { color: var(--blue-600); font-weight: 600; }
+.slot-free:hover { border-color: #9cc0f0; background: #eaf1fb; }
+.slot-taken { background: #f4f6f9; }
+.slot-taken .slot-t, .slot-taken .slot-n { color: var(--text-muted); opacity: .7; }
+.slot-mine { background: #e7f7ee; border-color: #bbe9cd; cursor: pointer; }
+.slot-mine .slot-t { color: #15803d; }
+.slot-mine .slot-n { color: #15803d; font-weight: 700; }
+.mt-link { display: inline-flex; align-items: center; gap: 8px; margin-top: 18px; font-size: 14px; font-weight: 700; color: var(--blue-600); text-decoration: none; padding: 9px 16px; border: 1.5px solid #9cc0f0; border-radius: 10px; background: #eff5ff; }
+.mt-link:hover { background: #e0ecfd; }
+
 /* Breadcrumb trail */
 .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-bottom: 16px; font-size: 13px; }
 .crumbs .crumb { color: var(--blue-600); text-decoration: none; font-weight: 600; padding: 3px 7px; border-radius: 7px; transition: background .15s; }
