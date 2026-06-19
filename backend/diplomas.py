@@ -59,14 +59,18 @@ DIPLOMA_CONFIG = {
         "mask": True, "mask_w": 0.66, "mask_h": 0.085, "mask_color": "#FBF6E6",
     },
 
-    # The date of issue — drawn just under the artwork's "DATE OF ISSUE" label.
+    # The date of issue — drawn in the gap just above the "DATE OF ISSUE" label
+    # (below the wax seal).
     "date": {
-        "cx": 0.5, "cy": 0.815,
-        "size": 15, "color": "#11335f", "font": "Times-Roman",
+        "cx": 0.5, "cy": 0.918,
+        "size": 12, "color": "#11335f", "font": "Times-Roman",
     },
 
-    # Optional teacher "final grade" line — only drawn when one is provided.
+    # Optional teacher "final grade" line. This diploma design is full, so it's
+    # OFF by default (the grade still appears in the recommendation letter and
+    # the student's record). Set "show": True and tune cy to print it here.
     "grade": {
+        "show": False,
         "cx": 0.5, "cy": 0.625,
         "size": 15, "color": "#7a1322", "font": "Times-Bold",
     },
@@ -191,10 +195,10 @@ def build_diploma_pdf(student_name: str, issue_date=None, final_grade: str = Non
     c.setFont(nc["font"], size)
     c.drawCentredString(width * nc["cx"], y_of(nc["cy"]), name)
 
-    # Optional final grade / distinction line.
+    # Optional final grade / distinction line (off by default for this design).
     grade = (final_grade or "").strip()
-    if grade:
-        gc = DIPLOMA_CONFIG["grade"]
+    gc = DIPLOMA_CONFIG["grade"]
+    if grade and gc.get("show"):
         c.setFillColor(HexColor(gc["color"]))
         c.setFont(gc["font"], gc["size"])
         c.drawCentredString(width * gc["cx"], y_of(gc["cy"]), grade)
