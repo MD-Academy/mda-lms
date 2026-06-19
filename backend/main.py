@@ -1,4 +1,5 @@
 import os
+import base64
 import logging
 import secrets
 import string
@@ -176,6 +177,11 @@ class UpdateStudentRequest(BaseModel):
 
 class SignedUrlRequest(BaseModel):
     storage_path: str
+
+
+class ImportPdfRequest(BaseModel):
+    pdf_base64: str
+    filename: Optional[str] = None
 
 
 class NotifPrefsRequest(BaseModel):
@@ -689,6 +695,104 @@ def get_signed_url(body: SignedUrlRequest, _=Depends(get_admin_user)):
         return {"success": True, "signed_url": result["signedURL"]}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to generate signed URL: {str(e)}")
+
+
+@app.post("/exams/import-pdf")
+def import_exam_pdf(body: ImportPdfRequest, _=Depends(get_admin_user)):
+    """Read an existing multiple-choice exam PDF and extract its questions (and, where the
+    PDF includes an answer key, the correct answers) using Claude. Returns the questions for
+    the teacher to review before saving — nothing is stored here. Needs ANTHROPIC_API_KEY."""
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise HTTPException(status_code=500, detail="PDF import isn't configured yet. Add ANTHROPIC_API_KEY in the backend environment.")
+
+    raw = (body.pdf_base64 or "").strip()
+    if raw.lower().startswith("data:") and "," in raw:
+        raw = raw.split(",", 1)[1]   # strip a data: URL prefix if the browser sent one
+    try:
+        pdf_bytes = base64.b64decode(raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Could not read the uploaded PDF.")
+    if len(pdf_bytes) == 0:
+        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+    if len(pdf_bytes) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="That PDF is too large to import (max 25 MB). Please split it into smaller files.")
+    pdf_b64 = base64.b64encode(pdf_bytes).decode("ascii")
+
+    tool = {
+        "name": "save_questions",
+        "description": "Save the multiple-choice questions extracted from the exam PDF.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "questions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "question": {"type": "string", "description": "The full question text, without any option letters."},
+                            "options": {"type": "array", "items": {"type": "string"}, "description": "The answer choices in order, each WITHOUT its A/B/C/D/E letter or number prefix."},
+                            "correct_index": {"type": "integer", "description": "0-based index of the correct option per the PDF's answer key, or -1 if the correct answer is not indicated anywhere in the PDF."},
+                        },
+                        "required": ["question", "options", "correct_index"],
+                    },
+                }
+            },
+            "required": ["questions"],
+        },
+    }
+
+    prompt = (
+        "This PDF is a multiple-choice exam. Extract EVERY multiple-choice question, in the order they appear.\n"
+        "For each: the question text (without option letters) and the answer options (each without its A/B/C/D/E "
+        "letter or number prefix).\n"
+        "If the PDF includes an answer key anywhere (inline, bolded/marked, or a separate key section or page), set "
+        "correct_index to the 0-based index of the correct option for that question. If a question's correct answer is "
+        "not indicated anywhere in the PDF, set correct_index to -1.\n"
+        "Only include genuine multiple-choice questions — skip instructions, section headers, and open-ended questions "
+        "with no options. Do not invent questions or options that aren't in the PDF. Then call the save_questions tool."
+    )
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic()
+        msg = client.messages.create(
+            model="claude-opus-4-8",
+            max_tokens=16000,
+            tools=[tool],
+            tool_choice={"type": "tool", "name": "save_questions"},
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": pdf_b64}},
+                    {"type": "text", "text": prompt},
+                ],
+            }],
+        )
+    except Exception as e:
+        logger.error("PDF import (Claude) failed: %s", e)
+        raise HTTPException(status_code=502, detail="Couldn't read the PDF with the AI service. Please try again, or check the file.")
+
+    extracted = []
+    for block in msg.content:
+        if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == "save_questions":
+            extracted = (block.input or {}).get("questions", []) or []
+            break
+
+    # Keep only well-formed MCQs (>=2 options); clamp correct_index into range.
+    cleaned = []
+    for q in extracted:
+        text = (str(q.get("question") or "")).strip()
+        opts = [str(o).strip() for o in (q.get("options") or []) if str(o).strip()]
+        ci = q.get("correct_index", -1)
+        if not isinstance(ci, int):
+            ci = -1
+        if not text or len(opts) < 2:
+            continue
+        if ci < 0 or ci >= len(opts):
+            ci = -1
+        cleaned.append({"question": text, "options": opts, "correct_index": ci})
+
+    return {"success": True, "questions": cleaned, "count": len(cleaned)}
 
 
 @app.post("/materials/signed-url/student")
