@@ -78,14 +78,18 @@
         let uniMap = {};
         let MY = {};            // university_id -> selection {id, status, degrees, is_final_choice}
         let selUniId = null;    // university being edited in the select modal
+        let UNI_TARGET = 3;     // office's recommended number of universities
 
         async function loadAll() {
             const box = document.getElementById('page-content');
             box.innerHTML = `<div class="loader">Loading universities…</div>`;
-            const [uRes, sRes] = await Promise.all([
+            const [uRes, sRes, tRes] = await Promise.all([
                 db.from('universities').select('id, name, country, location, costs, website, application_url, description, degrees, exam_dates, image_url').order('name', { ascending: true }),
-                db.from('university_selections').select('id, university_id, status, degrees, is_final_choice').eq('student_id', MY_ID)
+                db.from('university_selections').select('id, university_id, status, degrees, is_final_choice').eq('student_id', MY_ID),
+                db.from('app_settings').select('value').eq('key', 'university_target').limit(1)
             ]);
+            const t = parseInt(((tRes.data || [])[0] || {}).value, 10);
+            UNI_TARGET = (t >= 1 && t <= 20) ? t : 3;
             if (uRes.error) {
                 console.error('[universities] load failed:', uRes.error);
                 box.innerHTML = `<div class="empty-state" style="padding:48px;"><h3 style="color:var(--red)">Couldn't load universities</h3><p>Please refresh. If it keeps happening, contact the office.</p></div>`;
@@ -153,7 +157,28 @@
                     </div>`;
             }).join('');
 
-            box.innerHTML = summary + `<div class="uni-grid">${cards}</div>`;
+            box.innerHTML = summary + recommendationBanner() + `<div class="uni-grid">${cards}</div>`;
+        }
+
+        // A friendly (never pushy) nudge toward the office's recommended number.
+        function recommendationBanner() {
+            const target = UNI_TARGET;
+            const count = Object.keys(MY).length;
+            if (!target || target < 1) return '';
+            if (count >= target) {
+                return `<div class="att-card" style="margin-bottom:22px;background:#e7f7ee;border:1px solid #b6e6c8;">
+                    <p style="margin:0;font-size:14px;line-height:1.6;color:#15803d;">🎉 Nice — you've selected <strong>${count}</strong> universit${count === 1 ? 'y' : 'ies'}. Keeping a few good options open gives you the best chance. You can add or change your choices anytime.</p>
+                </div>`;
+            }
+            const remaining = target - count;
+            const uniWord = remaining === 1 ? 'university' : 'universities';
+            const have = count === 0 ? "You haven't selected any yet" : `You've selected <strong>${count}</strong> so far`;
+            return `<div class="att-card" style="margin-bottom:22px;background:#fff8e6;border:1px solid #f5e3b3;">
+                <p style="margin:0;font-size:14px;line-height:1.6;color:#8a6400;">
+                    💡 <strong>A friendly suggestion:</strong> we recommend selecting at least <strong>${target}</strong> universities to improve your chances of being accepted and starting your medical studies without delay.
+                    ${have} — you might consider choosing <strong>${remaining}</strong> more ${uniWord}. It's only a recommendation — the choice is always yours. 🙂
+                </p>
+            </div>`;
         }
 
         function openDetails(uid) {
