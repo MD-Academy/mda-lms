@@ -93,7 +93,7 @@
         async function submitQuiz(auto) {
             if (submitting) return;
             const unanswered = QUESTIONS.filter(q => answers[q.id] === undefined).length;
-            if (!auto && unanswered > 0) { if (!confirm(`You have ${unanswered} unanswered question(s). Submit anyway?`)) return; }
+            if (!auto && unanswered > 0) { const ok = await confirmDialog({ title: 'Submit quiz?', message: `You have ${unanswered} unanswered question(s). Submit anyway?`, confirmText: 'Submit anyway', cancelText: 'Keep answering' }); if (!ok) return; }
             submitting = true;
             if (timer) clearInterval(timer);
             const btn = document.getElementById('submit-btn');
@@ -104,7 +104,7 @@
             } catch (err) {
                 submitting = false;
                 if (btn) { btn.disabled = false; btn.textContent = 'Submit Quiz'; }
-                alert('Could not submit: ' + err.message);
+                await alertDialog({ title: 'Could not submit', message: err.message, danger: true });
             }
         }
         function showResult(res) {

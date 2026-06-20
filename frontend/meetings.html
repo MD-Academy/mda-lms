@@ -97,24 +97,26 @@
             if (b && b.student_id !== MY_ID) return;   // someone else's slot — not selectable
 
             if (b && b.student_id === MY_ID) {
-                if (!confirm(`Cancel your booking at ${slot}?`)) return;
+                const ok = await confirmDialog({ title: 'Cancel booking?', message: `Cancel your booking at ${slot}?`, confirmText: 'Cancel booking', cancelText: 'Keep it', danger: true });
+                if (!ok) return;
                 const { error } = await db.from('meeting_bookings').delete().eq('meeting_id', meetingId).eq('student_id', MY_ID);
-                if (error) { alert(`Couldn't cancel: ${error.message}`); return; }
+                if (error) { await alertDialog({ title: "Couldn't cancel", message: error.message, danger: true }); return; }
                 await reloadBookings(); render(); return;
             }
 
             // Free slot. If they already hold another slot here, move it.
             const mine = myBookingSlot(meetingId);
             if (mine) {
-                if (!confirm(`Move your booking from ${mine} to ${slot}?`)) return;
+                const ok = await confirmDialog({ title: 'Move your booking?', message: `Move your booking from ${mine} to ${slot}?`, confirmText: 'Move it' });
+                if (!ok) return;
                 const del = await db.from('meeting_bookings').delete().eq('meeting_id', meetingId).eq('student_id', MY_ID);
-                if (del.error) { alert(`Couldn't update: ${del.error.message}`); return; }
+                if (del.error) { await alertDialog({ title: "Couldn't update", message: del.error.message, danger: true }); return; }
             }
             const { error } = await db.from('meeting_bookings').insert({ meeting_id: meetingId, slot_time: slot, student_id: MY_ID });
             if (error) {
                 // 23505 = slot (or one-per-student) unique violation → someone grabbed it first.
                 await reloadBookings(); render();
-                alert(/duplicate|unique|23505/i.test(error.message) ? 'That time was just taken — please pick another.' : `Couldn't book: ${error.message}`);
+                await alertDialog({ title: 'Slot unavailable', message: /duplicate|unique|23505/i.test(error.message) ? 'That time was just taken — please pick another.' : `Couldn't book: ${error.message}`, danger: true });
                 return;
             }
             await reloadBookings(); render();

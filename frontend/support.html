@@ -255,7 +255,7 @@
                 await openTicket(CURRENT_TICKET);
                 loadTickets();
             } catch (err) {
-                alert(err.message);
+                await alertDialog({ title: "Couldn't send reply", message: err.message, danger: true });
             } finally {
                 btn.disabled = false; btn.textContent = 'Send reply';
             }

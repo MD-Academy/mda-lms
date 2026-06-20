@@ -102,11 +102,11 @@ function _setupAvatarUpload() {
 
         const ext = (file.name.split('.').pop() || '').toLowerCase();
         if (!file.type.startsWith('image/') || !AVATAR_ALLOWED.includes(ext)) {
-            alert('Invalid file. Please use an image: PNG, JPG, JPEG, WEBP or GIF.');
+            alertDialog({ title: 'Invalid file', message: 'Please use an image: PNG, JPG, JPEG, WEBP or GIF.', danger: true });
             return;
         }
         if (file.size > AVATAR_MAX_BYTES) {
-            alert(`Image is too large (${(file.size / 1024).toFixed(0)} KB). Maximum is 500 KB.`);
+            alertDialog({ title: 'Image too large', message: `Your image is ${(file.size / 1024).toFixed(0)} KB — the maximum is 500 KB. Please choose a smaller one.`, danger: true });
             return;
         }
 
@@ -133,7 +133,89 @@ function _setupAvatarUpload() {
             const big = document.getElementById('avatar-big'); if (big) big.innerHTML = `<img src="${_esc(url)}" alt="">`;
         } catch (err) {
             inner.innerHTML = prev;
-            alert(`Could not upload photo: ${err.message}`);
+            alertDialog({ title: 'Upload failed', message: `Could not upload photo: ${err.message}`, danger: true });
         }
     });
 }
+
+// ── STYLED DIALOGS (shared across the student portal) ──
+// Branded replacements for window.confirm()/alert(). No browser-default popups.
+function _ensureDialog() {
+    if (document.getElementById('ui-dialog-overlay')) return;
+    const style = document.createElement('style');
+    style.textContent = `
+        .ui-dlg-overlay { position: fixed; inset: 0; background: rgba(10,18,40,0.55); display: none; align-items: center; justify-content: center; z-index: 2000; padding: 20px; }
+        .ui-dlg-overlay.open { display: flex; }
+        .ui-dlg { background: #fff; border-radius: 16px; width: 100%; max-width: 440px; box-shadow: 0 20px 50px rgba(10,18,40,.3); overflow: hidden; animation: ui-dlg-in .14s ease-out; }
+        @keyframes ui-dlg-in { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+        .ui-dlg-body { padding: 26px 26px 18px; text-align: center; }
+        .ui-dlg-icon { width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 14px; }
+        .ui-dlg-icon svg { width: 26px; height: 26px; }
+        .ui-dlg-icon.info { background: #e0edff; color: #2563eb; }
+        .ui-dlg-icon.danger { background: #fee2e2; color: #dc2626; }
+        .ui-dlg-title { font-size: 18px; font-weight: 800; color: #0f2547; margin: 0 0 8px; }
+        .ui-dlg-msg { font-size: 14.5px; line-height: 1.55; color: #475569; white-space: pre-line; }
+        .ui-dlg-foot { display: flex; gap: 10px; justify-content: center; padding: 0 26px 24px; }
+        .ui-dlg-foot .btn { min-width: 110px; justify-content: center; }
+        .ui-dlg-foot .btn-danger { background: linear-gradient(135deg, #dc2626, #ef4444); color: #fff; }
+        .ui-dlg-foot .btn-danger:hover { opacity: .92; }
+    `;
+    document.head.appendChild(style);
+    const ov = document.createElement('div');
+    ov.className = 'ui-dlg-overlay';
+    ov.id = 'ui-dialog-overlay';
+    ov.innerHTML = `
+        <div class="ui-dlg" role="dialog" aria-modal="true">
+            <div class="ui-dlg-body">
+                <div class="ui-dlg-icon info" id="ui-dlg-icon"></div>
+                <h3 class="ui-dlg-title" id="ui-dlg-title"></h3>
+                <div class="ui-dlg-msg" id="ui-dlg-msg"></div>
+            </div>
+            <div class="ui-dlg-foot" id="ui-dlg-foot"></div>
+        </div>`;
+    document.body.appendChild(ov);
+}
+
+const _UI_ICON_DANGER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+const _UI_ICON_INFO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
+
+// confirmDialog -> Promise<boolean>. alertDialog -> Promise<void> (single button).
+function _showDialog({ title, message, confirmText, cancelText, danger, oneButton }) {
+    _ensureDialog();
+    const ov = document.getElementById('ui-dialog-overlay');
+    const icon = document.getElementById('ui-dlg-icon');
+    const foot = document.getElementById('ui-dlg-foot');
+    document.getElementById('ui-dlg-title').textContent = title;
+    document.getElementById('ui-dlg-msg').textContent = message || '';
+    icon.className = 'ui-dlg-icon ' + (danger ? 'danger' : 'info');
+    icon.innerHTML = danger ? _UI_ICON_DANGER : _UI_ICON_INFO;
+
+    foot.innerHTML = oneButton
+        ? `<button class="btn btn-primary" id="ui-dlg-ok">${confirmText || 'OK'}</button>`
+        : `<button class="btn btn-ghost" id="ui-dlg-cancel">${cancelText || 'Cancel'}</button>
+           <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" id="ui-dlg-ok">${confirmText || 'Confirm'}</button>`;
+    ov.classList.add('open');
+
+    return new Promise(resolve => {
+        const okBtn = document.getElementById('ui-dlg-ok');
+        const cancelBtn = document.getElementById('ui-dlg-cancel');
+        function cleanup(result) {
+            ov.classList.remove('open');
+            document.removeEventListener('keydown', onKey);
+            ov.onclick = null;
+            resolve(result);
+        }
+        function onKey(e) {
+            if (e.key === 'Escape' && !oneButton) cleanup(false);
+            else if (e.key === 'Enter') cleanup(true);
+        }
+        okBtn.onclick = () => cleanup(true);
+        if (cancelBtn) cancelBtn.onclick = () => cleanup(false);
+        ov.onclick = (e) => { if (e.target === ov && !oneButton) cleanup(false); };
+        document.addEventListener('keydown', onKey);
+        okBtn.focus();
+    });
+}
+
+function confirmDialog(opts = {}) { return _showDialog({ ...opts, oneButton: false }); }
+function alertDialog(opts = {}) { return _showDialog({ ...opts, oneButton: true }); }

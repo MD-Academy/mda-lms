@@ -214,7 +214,7 @@
             const upd = { status };
             if (status === 'applying' && sel.is_final_choice) upd.is_final_choice = false;   // can't stay final once not accepted
             const { error } = await db.from('university_selections').update(upd).eq('id', sel.id);
-            if (error) { alert(`Couldn't update: ${error.message}`); return; }
+            if (error) { await alertDialog({ title: "Couldn't update", message: error.message, danger: true }); return; }
             await loadAll();
         }
 
@@ -223,23 +223,24 @@
             // Only one final choice — clear any existing first.
             await db.from('university_selections').update({ is_final_choice: false }).eq('student_id', MY_ID).eq('is_final_choice', true);
             const { error } = await db.from('university_selections').update({ is_final_choice: true }).eq('id', sel.id);
-            if (error) { alert(`Couldn't set your choice: ${error.message}`); return; }
+            if (error) { await alertDialog({ title: "Couldn't set your choice", message: error.message, danger: true }); return; }
             await loadAll();
         }
 
         async function unsetFinal(uid) {
             const sel = MY[uid]; if (!sel) return;
             const { error } = await db.from('university_selections').update({ is_final_choice: false }).eq('id', sel.id);
-            if (error) { alert(`Couldn't update: ${error.message}`); return; }
+            if (error) { await alertDialog({ title: "Couldn't update", message: error.message, danger: true }); return; }
             await loadAll();
         }
 
         async function removeSel(uid) {
             const u = uniMap[uid];
-            if (!confirm(`Remove ${u ? u.name : 'this university'} from your selections?`)) return;
+            const ok = await confirmDialog({ title: 'Remove university?', message: `Remove ${u ? u.name : 'this university'} from your selections?`, confirmText: 'Remove', danger: true });
+            if (!ok) return;
             const sel = MY[uid]; if (!sel) return;
             const { error } = await db.from('university_selections').delete().eq('id', sel.id);
-            if (error) { alert(`Couldn't remove: ${error.message}`); return; }
+            if (error) { await alertDialog({ title: "Couldn't remove", message: error.message, danger: true }); return; }
             await loadAll();
         }
 

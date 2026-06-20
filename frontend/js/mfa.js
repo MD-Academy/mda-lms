@@ -58,7 +58,8 @@ async function _startEnroll(containerId) {
 }
 
 async function _disableMfa(factorId, containerId) {
-    if (!confirm('Disable two-factor authentication? Your account will be less protected.')) return;
+    const ok = await confirmDialog({ title: 'Disable two-factor?', message: 'Disable two-factor authentication? Your account will be less protected.', confirmText: 'Disable 2FA', danger: true });
+    if (!ok) return;
     const { error } = await db.auth.mfa.unenroll({ factorId });
     if (error) {
         const msg = document.getElementById('mfa-msg');
