@@ -98,12 +98,18 @@ async function _startLoginTracking(studentId) {
             const id = sessionStorage.getItem('mda_login_session_id');
             if (id) db.from('login_sessions').update({ last_seen_at: new Date().toISOString() }).eq('id', id);
         });
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'hidden') {
-                const id = sessionStorage.getItem('mda_login_session_id');
-                if (id) db.from('login_sessions').update({ last_seen_at: new Date().toISOString() }).eq('id', id);
-            }
-        });
+        // Keep the session fresh as the student moves between tabs/windows. When
+        // they come back to the portal tab, immediately refresh it (and keep it
+        // open) so background-tab timer throttling doesn't make it look "ended".
+        const _touch = (keepOpen) => {
+            const id = sessionStorage.getItem('mda_login_session_id');
+            if (!id) return;
+            const patch = { last_seen_at: new Date().toISOString() };
+            if (keepOpen) patch.ended_at = null;
+            db.from('login_sessions').update(patch).eq('id', id);
+        };
+        document.addEventListener('visibilitychange', () => _touch(document.visibilityState === 'visible'));
+        window.addEventListener('focus', () => _touch(true));
     } catch (e) { /* tracking must never block the page */ }
 }
 
