@@ -65,7 +65,10 @@ function renderLayout(activeId, pageTitle, pageSub, profile) {
                 </div>
                 <div class="topbar-user">
                     <div class="user-info">
-                        <strong>${_esc(profile.full_name || 'Student')}</strong>
+                        <strong style="display:inline-flex;align-items:center;gap:7px;align-self:flex-end;margin-bottom:5px;background:linear-gradient(135deg,#2563eb 0%,#7a2a6b 55%,#b91c5c 100%);color:#fff;font-weight:700;font-size:13.5px;padding:6px 13px;border-radius:10px;text-shadow:0 1px 2px rgba(0,0,0,.22);box-shadow:0 4px 12px rgba(37,99,235,.28),0 2px 4px rgba(185,28,92,.28),inset 0 1px 0 rgba(255,255,255,.38),inset 0 -2px 4px rgba(0,0,0,.18);">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-4 9 4-9 4-9-4z"/><path d="M21 8v4.5"/><circle cx="12" cy="14.5" r="2.4"/><path d="M7.6 21a4.4 4.4 0 0 1 8.8 0"/></svg>
+                            ${_esc(profile.full_name || 'Student')}
+                        </strong>
                         <span>Student</span>
                     </div>
                     <button class="avatar avatar-btn" id="avatar-btn" title="Upload a photo">
