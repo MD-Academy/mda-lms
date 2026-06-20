@@ -42,7 +42,7 @@
             const auth = await requireStudent();
             if (!auth) return;
             const uid = auth.session.user.id;
-            renderLayout('tuition', 'Tuition', 'Your programs & payments', auth.profile);
+            renderLayout('tuition', 'Program Tuition', 'Your programs & payments', auth.profile);
             const box = document.getElementById('page-content');
             box.innerHTML = `<div class="loader">Loading your tuition…</div>`;
 
