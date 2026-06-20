@@ -81,15 +81,14 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 }
 .avatar-edit svg { width: 9px; height: 9px; color: #fff; }
 .avatar-btn:hover .avatar-edit { opacity: 1; }
-/* Playful "doctor-in-training" badge tucked on the avatar. */
+/* Playful "doctor-in-training" badge — sits next to the photo, not over it. */
 .avatar-steth {
-    position: absolute; left: -3px; bottom: -3px; width: 22px; height: 22px;
+    width: 32px; height: 32px; flex-shrink: 0;
     background: linear-gradient(135deg, #2563eb, #b91c5c); border-radius: 50%;
-    border: 2px solid var(--card);
     display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 2px 6px rgba(10,18,40,.28); pointer-events: none;
+    box-shadow: 0 2px 7px rgba(10,18,40,.28);
 }
-.avatar-steth svg { width: 13px; height: 13px; }
+.avatar-steth svg { width: 18px; height: 18px; }
 .topbar-user .user-info { display: flex; flex-direction: column; text-align: right; }
 .topbar-user .user-info strong { font-size: 14px; color: var(--text); }
 .topbar-user .user-info span { font-size: 12px; color: var(--text-muted); }
