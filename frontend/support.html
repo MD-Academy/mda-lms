@@ -60,7 +60,8 @@
                 </div>
                 <div class="form-field">
                     <label>Screenshot <span style="color:var(--text-muted);font-weight:400;">(optional)</span></label>
-                    <input type="file" id="nt-file" accept="image/png,image/jpeg,image/jpg">
+                    <input type="file" id="nt-file" accept="image/png,image/jpeg,image/jpg" onchange="onShotPick()">
+                    <div id="nt-file-msg" style="margin-top:6px;font-size:13px;font-weight:600;display:none;"></div>
                     <div class="hint" style="margin-top:6px;">📸 A screenshot of the problem helps us fix it much faster — otherwise we may need to contact you to understand the issue. JPG or PNG, up to 500&nbsp;KB.</div>
                 </div>
             </div>
@@ -139,11 +140,44 @@
                 </div>`).join('');
         }
 
+        function newErr(m){ const a = document.getElementById('new-alert'); a.className = 'alert error'; a.textContent = m; a.style.display = 'block'; a.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+
+        // Returns an error string if the chosen screenshot is invalid, else null.
+        function validateShot(file){
+            if (!file) return null;
+            const ext = (file.name.split('.').pop() || '').toLowerCase();
+            if (!file.type.startsWith('image/') || !ALLOWED_IMG.includes(ext)) return 'Screenshot must be a JPG or PNG image.';
+            if (file.size > SHOT_MAX) return `Your screenshot is ${(file.size/1024).toFixed(0)} KB — that's over the 500 KB limit. Please choose a smaller image (or take a new screenshot).`;
+            return null;
+        }
+
+        // Immediate feedback the moment a file is picked — never silent.
+        function onShotPick(){
+            const input = document.getElementById('nt-file');
+            const msg = document.getElementById('nt-file-msg');
+            const file = input.files[0];
+            if (!file){ msg.style.display = 'none'; return; }
+            const err = validateShot(file);
+            if (err){
+                input.value = '';                 // reject it
+                msg.style.color = 'var(--red)';
+                msg.textContent = '⚠️ ' + err;
+                msg.style.display = 'block';
+                newErr(err);
+            } else {
+                msg.style.color = 'var(--green)';
+                msg.textContent = `✓ ${file.name} (${(file.size/1024).toFixed(0)} KB) ready to attach.`;
+                msg.style.display = 'block';
+                document.getElementById('new-alert').style.display = 'none';
+            }
+        }
+
         function openNew() {
             document.getElementById('new-alert').style.display = 'none';
             document.getElementById('nt-title').value = '';
             document.getElementById('nt-body').value = '';
             document.getElementById('nt-file').value = '';
+            document.getElementById('nt-file-msg').style.display = 'none';
             openOvl('new-ovl');
         }
 
@@ -153,9 +187,10 @@
             const title = document.getElementById('nt-title').value.trim();
             const bodyText = document.getElementById('nt-body').value.trim();
             const file = document.getElementById('nt-file').files[0];
-            function showErr(m){ alert.className = 'alert error'; alert.textContent = m; alert.style.display = 'block'; }
-            if (!title) { showErr('Please add a short title.'); return; }
-            if (!bodyText) { showErr('Please describe the problem.'); return; }
+            if (!title) { newErr('Please add a short title.'); return; }
+            if (!bodyText) { newErr('Please describe the problem.'); return; }
+            const shotErr = validateShot(file);
+            if (shotErr) { newErr(shotErr); return; }
 
             let screenshotPath = null;
             const btn = document.getElementById('nt-submit');
@@ -163,8 +198,6 @@
             try {
                 if (file) {
                     const ext = (file.name.split('.').pop() || '').toLowerCase();
-                    if (!file.type.startsWith('image/') || !ALLOWED_IMG.includes(ext)) throw new Error('Screenshot must be a JPG or PNG image.');
-                    if (file.size > SHOT_MAX) throw new Error(`Screenshot is too large (${(file.size/1024).toFixed(0)} KB). Maximum is 500 KB.`);
                     const path = `${UID}/${Date.now()}.${ext}`;
                     const up = await db.storage.from(SHOT_BUCKET).upload(path, file, { contentType: file.type, upsert: false });
                     if (up.error) throw new Error(up.error.message);
@@ -174,7 +207,7 @@
                 closeOvl('new-ovl');
                 loadTickets();
             } catch (err) {
-                showErr(err.message);
+                newErr(err.message || 'Something went wrong sending your ticket. Please try again.');
             } finally {
                 btn.disabled = false; btn.textContent = 'Send ticket';
             }
