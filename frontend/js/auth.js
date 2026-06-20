@@ -82,18 +82,21 @@ async function _startLoginTracking(studentId) {
             sid = data.id;
             sessionStorage.setItem('mda_login_session_id', sid);
         } else {
-            db.from('login_sessions').update({ last_seen_at: new Date().toISOString() }).eq('id', sid);
+            // Reusing this browser's session across page navigations — keep it OPEN
+            // (clear any end stamp) so the student still counts as active.
+            db.from('login_sessions').update({ last_seen_at: new Date().toISOString(), ended_at: null }).eq('id', sid);
         }
         if (_heartbeatTimer) clearInterval(_heartbeatTimer);
         _heartbeatTimer = setInterval(() => {
             const id = sessionStorage.getItem('mda_login_session_id');
-            if (id) db.from('login_sessions').update({ last_seen_at: new Date().toISOString() }).eq('id', id);
+            if (id) db.from('login_sessions').update({ last_seen_at: new Date().toISOString(), ended_at: null }).eq('id', id);
         }, 60000);
 
-        // Best-effort finalize when leaving / hiding the tab.
+        // On unload, just bump "last seen" — do NOT end the session, because normal
+        // page navigation fires this too. The session ends only on sign-out (below).
         window.addEventListener('beforeunload', () => {
             const id = sessionStorage.getItem('mda_login_session_id');
-            if (id) db.from('login_sessions').update({ last_seen_at: new Date().toISOString(), ended_at: new Date().toISOString() }).eq('id', id);
+            if (id) db.from('login_sessions').update({ last_seen_at: new Date().toISOString() }).eq('id', id);
         });
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'hidden') {
