@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="assets/images/favicon.png?v=1">
+    <title>Medical Doctor Academy — Tuition</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/student.css">
+    <style>
+        .tu-wrap { max-width: 720px; }
+        .tu-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 18px; }
+        .tu-stat { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; }
+        .tu-stat .num { font-size: 26px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+        .tu-stat .lbl { font-size: 12.5px; color: var(--text-muted); margin-top: 6px; }
+        .tu-status { padding: 14px 18px; border-radius: 12px; font-size: 14.5px; font-weight: 600; margin-bottom: 18px; }
+        .tu-status.paid { background: #e7f7ee; color: #15803d; border: 1px solid #b6e6c8; }
+        .tu-status.progress { background: #eff5ff; color: #1d4ed8; border: 1px solid #cfe0ff; }
+        .tu-status.overdue { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+        .pay-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; }
+        .pay-item .amt { font-weight: 700; font-variant-numeric: tabular-nums; color: #15803d; }
+        @media (max-width: 560px) { .tu-stats { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="layout" id="app-layout"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/layout.js"></script>
+    <script>
+        function esc(s){ return s ? String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) : ''; }
+        let CURRENCY = 'NIS';
+        function fmtMoney(n){ return `${Number(n||0).toLocaleString(undefined,{maximumFractionDigits:2})} ${CURRENCY}`; }
+        function fmtDate(d){ return d ? new Date(d + 'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : ''; }
+        function todayIso(){ const t=new Date(); return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`; }
+
+        (async () => {
+            const auth = await requireStudent();
+            if (!auth) return;
+            const uid = auth.session.user.id;
+            renderLayout('tuition', 'Tuition', 'Your premedical tuition & payments', auth.profile);
+            const box = document.getElementById('page-content');
+            box.innerHTML = `<div class="loader">Loading your tuition…</div>`;
+
+            const [setRes, tRes, pRes] = await Promise.all([
+                db.from('app_settings').select('value').eq('key', 'tuition_currency').limit(1),
+                db.from('student_tuition').select('total_amount, deadline').eq('student_id', uid).limit(1),
+                db.from('tuition_payments').select('amount, paid_on, note').eq('student_id', uid).order('paid_on', { ascending: true })
+            ]);
+            CURRENCY = (((setRes.data || [])[0] || {}).value || 'NIS').trim() || 'NIS';
+            const row = (tRes.data || [])[0];
+
+            if (!row) {
+                box.innerHTML = `<div class="tu-wrap"><div class="panel" style="text-align:center;padding:40px;">
+                    <div style="font-size:34px;margin-bottom:8px;">🧾</div>
+                    <h3 style="margin:0 0 6px;color:var(--navy-800);">Your tuition isn't set yet</h3>
+                    <p style="color:var(--text-muted);margin:0;">The office hasn't set up your tuition details yet. If you have questions, please contact the office.</p>
+                </div></div>`;
+                return;
+            }
+
+            const total = Number(row.total_amount) || 0;
+            const pays = pRes.data || [];
+            const paid = pays.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+            const left = Math.max(total - paid, 0);
+            const completed = total > 0 && paid >= total;
+            const overdue = !completed && row.deadline && row.deadline < todayIso();
+
+            let statusHtml;
+            if (completed) {
+                statusHtml = `<div class="tu-status paid">🎉 Payment completed — thank you! Your tuition is fully paid.</div>`;
+            } else if (overdue) {
+                statusHtml = `<div class="tu-status overdue">⏰ Payment overdue — the deadline was ${esc(fmtDate(row.deadline))}. You still have ${esc(fmtMoney(left))} left to pay. Please contact the office to arrange it.</div>`;
+            } else {
+                const due = row.deadline ? ` Please complete it by <strong>${esc(fmtDate(row.deadline))}</strong>.` : '';
+                statusHtml = `<div class="tu-status progress">You have <strong>${esc(fmtMoney(left))}</strong> left to pay.${due}</div>`;
+            }
+
+            const history = pays.length
+                ? pays.map(p => `<div class="pay-item">
+                        <div><span class="amt">${esc(fmtMoney(p.amount))}</span>
+                        <span style="color:var(--text-muted);font-size:13px;margin-left:8px;">${esc(fmtDate(p.paid_on))}${p.note ? ' · ' + esc(p.note) : ''}</span></div>
+                    </div>`).join('')
+                : `<p style="color:var(--text-muted);margin:0;">No payments recorded yet.</p>`;
+
+            box.innerHTML = `
+                <div class="tu-wrap">
+                    ${statusHtml}
+                    <div class="tu-stats">
+                        <div class="tu-stat"><div class="num" style="color:var(--navy-800);">${esc(fmtMoney(total))}</div><div class="lbl">Total tuition</div></div>
+                        <div class="tu-stat"><div class="num" style="color:#16a34a;">${esc(fmtMoney(paid))}</div><div class="lbl">Paid so far</div></div>
+                        <div class="tu-stat"><div class="num" style="color:${left > 0 ? '#b45309' : 'var(--text-muted)'};">${esc(fmtMoney(left))}</div><div class="lbl">Left to pay</div></div>
+                    </div>
+                    <div class="panel">
+                        <div class="section-title" style="margin-bottom:14px;">Payment history</div>
+                        ${history}
+                    </div>
+                </div>`;
+        })();
+    </script>
+</body>
+</html>
