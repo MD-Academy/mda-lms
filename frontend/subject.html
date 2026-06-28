@@ -23,6 +23,29 @@
         </div>
     </div>
 
+    <!-- EMBEDDED PRESENTATION VIEWER (no new tab, no URL shown) -->
+    <div class="embed-overlay" id="embed-overlay">
+        <div class="embed-shell">
+            <div class="embed-bar">
+                <div class="embed-titlewrap">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h20v14H2z"/><path d="M8 21h8M12 17v4"/></svg>
+                    <span class="embed-title" id="embed-title">Presentation</span>
+                    <span class="embed-brand">Medical Doctor Academy</span>
+                </div>
+                <div class="embed-actions">
+                    <button class="embed-btn" onclick="embedFullscreen()" title="Fullscreen">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+                        Fullscreen
+                    </button>
+                    <button class="embed-btn embed-close" onclick="closeEmbed()" title="Close (Esc)">&times;</button>
+                </div>
+            </div>
+            <div class="embed-frame-wrap">
+                <iframe id="embed-frame" allow="fullscreen" allowfullscreen referrerpolicy="no-referrer" title="Presentation"></iframe>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="js/config.js"></script>
     <script src="js/auth.js"></script>
@@ -46,13 +69,34 @@
             p.pause(); p.removeAttribute('src'); p.load();
             document.getElementById('vid-overlay').classList.remove('open');
         }
-        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeVideo(); });
         function openMaterial(path, title) {
             location.href = `viewer.html?path=${encodeURIComponent(path)}&title=${encodeURIComponent(title || 'Material')}`;
         }
-        function openExternal(url) {
-            if (/^https?:\/\//i.test(url)) window.open(url, '_blank', 'noopener');
+
+        // Open an external presentation EMBEDDED in the LMS — no new tab, no URL shown.
+        function openEmbed(url, title) {
+            if (!url || !/^https?:\/\//i.test(url)) return;
+            document.getElementById('embed-title').textContent = title || 'Presentation';
+            document.getElementById('embed-frame').src = url;
+            document.getElementById('embed-overlay').classList.add('open');
+            document.body.style.overflow = 'hidden';
         }
+        function closeEmbed() {
+            const f = document.getElementById('embed-frame');
+            f.removeAttribute('src');
+            document.getElementById('embed-overlay').classList.remove('open');
+            document.body.style.overflow = '';
+        }
+        function embedFullscreen() {
+            const f = document.getElementById('embed-frame');
+            (f.requestFullscreen || f.webkitRequestFullscreen || f.msRequestFullscreen || function(){}).call(f);
+        }
+        document.addEventListener('keydown', e => {
+            if (e.key !== 'Escape') return;
+            closeVideo();
+            // Esc closes the embed only when not in browser fullscreen (let FS exit first).
+            if (!document.fullscreenElement) closeEmbed();
+        });
 
         (async () => {
             const auth = await requireStudent();
@@ -94,6 +138,8 @@
                 db.from('recordings').select('id, title, professor, recorded_date, aws_url, is_visible, kind, order_index').eq('room_id', roomId).eq('kind', 'lecture').order('order_index', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true }),
                 db.from('materials').select('id, title, type, storage_path, external_url, category, is_visible, created_at, order_index').eq('room_id', roomId).order('order_index', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
             ]);
+
+            const extById = {};   // material id -> external_url (kept out of the DOM)
 
             // Lessons (informational)
             const lessons = lRes.error ? [] : (lRes.data || []);
@@ -139,6 +185,7 @@
                 document.getElementById('materials-box').innerHTML = secErr('study materials');
                 document.getElementById('notes-box').innerHTML = secErr('notes');
             } else {
+                (mRes.data || []).forEach(m => { if (m.external_url) extById[m.id] = m.external_url; });
                 const mats = (mRes.data || []).filter(m => (m.category === 'note' ? 'note' : 'material') === 'material');
                 const notes = (mRes.data || []).filter(m => m.category === 'note');
                 const matHtml = list => list.length === 0
@@ -149,7 +196,7 @@
                             <div class="ir-body"><div class="ir-title">${esc(m.title)}</div><div class="ir-sub">${esc((m.type||'file').toUpperCase())}</div></div>
                             ${m.is_visible
                                 ? (m.external_url
-                                    ? `<button class="btn btn-primary js-extlink" data-url="${esc(m.external_url)}">Open ↗</button>`
+                                    ? `<button class="btn btn-primary js-extlink" data-mid="${esc(m.id)}" data-title="${esc(m.title)}">Open</button>`
                                     : `<button class="btn btn-primary js-read" data-path="${esc(m.storage_path)}" data-title="${esc(m.title)}">Read</button>`)
                                 : LOCK}
                         </div>`).join('');
@@ -161,7 +208,7 @@
                 const play = e.target.closest('.js-play');
                 if (play) { openVideo(play.dataset.url, play.dataset.title); return; }
                 const ext = e.target.closest('.js-extlink');
-                if (ext) { openExternal(ext.dataset.url); return; }
+                if (ext) { openEmbed(extById[ext.dataset.mid], ext.dataset.title); return; }
                 const read = e.target.closest('.js-read');
                 if (read) openMaterial(read.dataset.path, read.dataset.title);
             });
