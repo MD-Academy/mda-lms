@@ -113,13 +113,12 @@ async function _initNotifications() {
         if (!session) return;
         _notifUid = session.user.id;
         const todayIso = new Date().toISOString().slice(0, 10);
-        const [coursesRes, csRes, schedRes, annRes, readsRes, profRes] = await Promise.all([
+        const [coursesRes, csRes, schedRes, annRes, readsRes] = await Promise.all([
             db.from('courses').select('id'),
             db.from('course_subjects').select('room_id'),
             db.from('schedule_entries').select('id, room_id, course_id, entry_date, topic').gte('entry_date', todayIso).order('entry_date', { ascending: true }).limit(200),
             db.from('announcements').select('id, title, posted_at, course_id').order('posted_at', { ascending: false }).limit(200),
-            db.from('notification_reads').select('kind, ref_id').eq('student_id', _notifUid),
-            db.from('profiles').select('notifs_init').eq('id', _notifUid).single()
+            db.from('notification_reads').select('kind, ref_id').eq('student_id', _notifUid)
         ]);
         const myCourseIds = new Set((coursesRes.data || []).map(c => c.id));
         const mySubjectIds = new Set((csRes.data || []).map(r => r.room_id));
@@ -127,19 +126,8 @@ async function _initNotifications() {
             (!e.course_id && !e.room_id) || (e.course_id && myCourseIds.has(e.course_id)) || (e.room_id && mySubjectIds.has(e.room_id)));
         const anns = (annRes.data || []).filter(a => !a.course_id || myCourseIds.has(a.course_id));
 
-        // First load ever: baseline everything that exists as "seen".
-        if (!profRes.data || !profRes.data.notifs_init) {
-            const rows = [
-                ...anns.map(a => ({ student_id: _notifUid, kind: 'announcement', ref_id: a.id })),
-                ...sched.map(s => ({ student_id: _notifUid, kind: 'schedule', ref_id: s.id }))
-            ];
-            if (rows.length) await db.from('notification_reads').upsert(rows, { onConflict: 'student_id,kind,ref_id' });
-            await db.from('profiles').update({ notifs_init: true }).eq('id', _notifUid);
-            _notifUnread = [];
-            _renderBell();
-            return;
-        }
-
+        // An item is UNREAD until the student scrolls to its section or dismisses it.
+        // A page load/refresh never marks anything read.
         const readSet = new Set((readsRes.data || []).map(r => `${r.kind}:${r.ref_id}`));
         _notifUnread = [];
         anns.forEach(a => { if (!readSet.has(`announcement:${a.id}`)) _notifUnread.push({ kind: 'announcement', id: a.id, title: a.title, sub: 'Announcement · ' + _notifDate(a.posted_at), date: a.posted_at }); });

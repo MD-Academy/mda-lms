@@ -182,21 +182,32 @@
             }
         })();
 
-        // Gentle scroll-to-read: when a section scrolls into view, mark the items
-        // shown there as read on the notification bell (the student saw them).
+        // Scroll-to-read: ONLY an actual scroll marks items seen — never a page
+        // load/refresh. When the student scrolls a section into view, its items
+        // are marked read on the bell.
+        let _notifPending = [];
+        let _notifScrollTimer = null;
         function _observeSection(elId, items) {
             if (!items || !items.length || typeof markNotifsRead !== 'function') return;
-            const el = document.getElementById(elId);
-            if (!el || !('IntersectionObserver' in window)) return;
-            const obs = new IntersectionObserver((entries) => {
-                entries.forEach(en => {
-                    if (en.isIntersecting) {
-                        obs.disconnect();
-                        setTimeout(() => markNotifsRead(items), 1200);  // brief dwell = actually looked
-                    }
-                });
-            }, { threshold: 0.4 });
-            obs.observe(el);
+            _notifPending.push({ elId, items });
+            window.addEventListener('scroll', _notifOnScroll, { passive: true });
+        }
+        function _notifOnScroll() {
+            clearTimeout(_notifScrollTimer);
+            _notifScrollTimer = setTimeout(_notifCheckSeen, 250);
+        }
+        function _notifCheckSeen() {
+            for (let i = _notifPending.length - 1; i >= 0; i--) {
+                const el = document.getElementById(_notifPending[i].elId);
+                if (!el) { _notifPending.splice(i, 1); continue; }
+                const r = el.getBoundingClientRect();
+                // The section is genuinely in view (its top has scrolled up into the window).
+                if (r.top < window.innerHeight * 0.85 && r.bottom > 60) {
+                    markNotifsRead(_notifPending[i].items);
+                    _notifPending.splice(i, 1);
+                }
+            }
+            if (!_notifPending.length) window.removeEventListener('scroll', _notifOnScroll);
         }
     </script>
 </body>
