@@ -155,7 +155,7 @@ function _ensureNotifModal() {
         <div class="notif-box" role="dialog" aria-modal="true">
             <div class="notif-head">
                 <h3>Notifications</h3>
-                <button class="ni-x" style="font-size:24px;" onclick="closeNotifications()" title="Close">&times;</button>
+                <button class="notif-close" onclick="closeNotifications()" title="Close">&times;</button>
             </div>
             <div class="notif-list" id="notif-list"></div>
             <div class="notif-foot" id="notif-foot"></div>
