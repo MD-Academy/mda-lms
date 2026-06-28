@@ -163,6 +163,7 @@
                         <div class="s-body"><div class="s-topic">${esc(e.topic)}</div><div class="s-sub">${tag}${e.details ? ' · ' + esc(e.details) : ''}</div></div>
                     </div>`;
                 }, 'Nothing scheduled coming up.');
+                _observeSection('schedule-box', sched.map(e => ({ kind: 'schedule', id: e.id })));
             }
 
             // Announcements
@@ -177,8 +178,26 @@
                         <div class="n-head"><div class="n-title">${esc(a.title)}</div><div class="n-date">${fmtDateTime(a.posted_at)}</div></div>
                         <div class="n-body">${esc(a.body)}</div>
                     </div>`, 'No announcements right now.');
+                _observeSection('ann-box', anns.map(a => ({ kind: 'announcement', id: a.id })));
             }
         })();
+
+        // Gentle scroll-to-read: when a section scrolls into view, mark the items
+        // shown there as read on the notification bell (the student saw them).
+        function _observeSection(elId, items) {
+            if (!items || !items.length || typeof markNotifsRead !== 'function') return;
+            const el = document.getElementById(elId);
+            if (!el || !('IntersectionObserver' in window)) return;
+            const obs = new IntersectionObserver((entries) => {
+                entries.forEach(en => {
+                    if (en.isIntersecting) {
+                        obs.disconnect();
+                        setTimeout(() => markNotifsRead(items), 1200);  // brief dwell = actually looked
+                    }
+                });
+            }, { threshold: 0.4 });
+            obs.observe(el);
+        }
     </script>
 </body>
 </html>
