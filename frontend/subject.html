@@ -56,6 +56,13 @@
 
         const LOCK = '<span class="lock-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Not released yet</span>';
         const secErr = (what) => `<div class="empty-state" style="padding:24px;"><h3 style="color:var(--red)">Couldn't load ${what}</h3><p>Please refresh. If it keeps happening, contact the office.</p></div>`;
+        const empty = (msg) => `<div class="empty-state" style="padding:24px;"><p>${msg}</p></div>`;
+
+        // Category icons (re-used in the cards' banners and the section headers).
+        const IC_PRES  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h20v14H2z"/><path d="M8 21h8M12 17v4"/></svg>';
+        const IC_VIDEO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>';
+        const IC_QUIZ  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>';
+        const IC_FILE  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
 
         function openVideo(url, title) {
             document.getElementById('vid-title').textContent = title || 'Video';
@@ -123,88 +130,129 @@
             }
             crumbItems.push({ label: room.name });
 
-            document.getElementById('page-content').innerHTML = `
-                ${crumbs(crumbItems)}
-                <a class="btn btn-ghost" onclick="history.back()" style="margin-bottom:18px;cursor:pointer;">← Back</a>
-                <div class="section"><div class="section-title">📘 Lessons</div><div id="lessons-box"><div class="loader">Loading…</div></div></div>
-                <div class="section"><div class="section-title">🎥 Video Lectures</div><div id="lectures-box"><div class="loader">Loading…</div></div></div>
-                <div class="section"><div class="section-title">📄 Study Materials</div><div id="materials-box"><div class="loader">Loading…</div></div></div>
-                <div class="section"><div class="section-title">📝 Additional Notes</div><div id="notes-box"><div class="loader">Loading…</div></div></div>
-                <div class="section"><div class="section-title">✅ Quizzes</div><div id="quizzes-box"><div class="loader">Loading…</div></div></div>
-            `;
+            const content = document.getElementById('page-content');
+            const topCrumbs = crumbs(crumbItems);
+            content.innerHTML = `${topCrumbs}<div class="loader">Loading…</div>`;
+
+            const extById = {};   // material id -> external_url (kept out of the DOM)
 
             const [lRes, recRes, mRes] = await Promise.all([
-                db.from('lessons').select('id, title, description, order_index, is_visible').eq('room_id', roomId).order('order_index', { ascending: true }),
+                db.from('lessons').select('id, title, order_index, is_visible').eq('room_id', roomId).order('order_index', { ascending: true }),
                 db.from('recordings').select('id, title, professor, recorded_date, aws_url, is_visible, kind, order_index').eq('room_id', roomId).eq('kind', 'lecture').order('order_index', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true }),
                 db.from('materials').select('id, title, type, storage_path, external_url, category, is_visible, created_at, order_index').eq('room_id', roomId).order('order_index', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
             ]);
 
-            const extById = {};   // material id -> external_url (kept out of the DOM)
-
-            // Lessons (informational)
+            // Lessons are no longer shown as text, but we still need them to label the quizzes.
             const lessons = lRes.error ? [] : (lRes.data || []);
-            if (lRes.error) {
-                console.error('[subject] lessons failed to load:', lRes.error);
-                document.getElementById('lessons-box').innerHTML = secErr('lessons');
-            } else {
-                document.getElementById('lessons-box').innerHTML = lessons.length === 0
-                    ? `<div class="empty-state" style="padding:24px;"><p>No lessons yet.</p></div>`
-                    : lessons.map(l => l.is_visible
-                        ? `<div style="padding:14px 6px; border-bottom:1px solid var(--border);">
-                               <h2 style="font-size:17px; font-weight:700; color:var(--navy-800); margin:0 0 4px;">${esc(l.title)}</h2>
-                               ${l.description ? `<p style="margin:0; color:var(--text-muted); font-size:14px; line-height:1.6;">${esc(l.description)}</p>` : ''}
-                           </div>`
-                        : `<div style="padding:14px 6px; border-bottom:1px solid var(--border); opacity:.5; display:flex; align-items:center; justify-content:space-between; gap:12px;">
-                               <div>
-                                   <h2 style="font-size:17px; font-weight:700; color:var(--navy-800); margin:0 0 4px;">${esc(l.title)}</h2>
-                                   ${l.description ? `<p style="margin:0; color:var(--text-muted); font-size:14px; line-height:1.6;">${esc(l.description)}</p>` : ''}
-                               </div>
-                               ${LOCK}
-                           </div>`).join('');
-            }
+            const lessonTitleMap = {}; lessons.forEach(l => lessonTitleMap[l.id] = l.title);
 
             // Video Lectures
-            if (recRes.error) {
-                console.error('[subject] video lectures failed to load:', recRes.error);
-                document.getElementById('lectures-box').innerHTML = secErr('video lectures');
-            } else {
-                const lectures = recRes.data || [];
-                document.getElementById('lectures-box').innerHTML = lectures.length === 0
-                    ? `<div class="empty-state" style="padding:24px;"><p>No video lectures yet.</p></div>`
-                    : lectures.map(r => `
-                        <div class="item-row ${r.is_visible ? '' : 'locked'}">
-                            <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
-                            <div class="ir-body"><div class="ir-title">${esc(r.title)}</div><div class="ir-sub">${esc(r.professor)} · ${fmtDate(r.recorded_date)}</div></div>
-                            ${r.is_visible ? `<button class="btn btn-primary js-play" data-url="${esc(r.aws_url)}" data-title="${esc(r.title)}">▶ Play</button>` : LOCK}
-                        </div>`).join('');
+            const lecErr = !!recRes.error;
+            if (lecErr) console.error('[subject] video lectures failed to load:', recRes.error);
+            const lectures = lecErr ? [] : (recRes.data || []);
+
+            // Presentations = study materials + additional notes (merged into one category)
+            const matErr = !!mRes.error;
+            if (matErr) console.error('[subject] study materials failed to load:', mRes.error);
+            const materials = matErr ? [] : (mRes.data || []);
+            materials.forEach(m => { if (m.external_url) extById[m.id] = m.external_url; });
+
+            // Quizzes (per-lesson) — only visible/accessible ones are returned by RLS
+            let quizErr = false, quizzes = [];
+            const lessonIds = lessons.map(l => l.id);
+            if (lessonIds.length) {
+                const { data, error: qErr } = await db.from('quizzes').select('id, lesson_id').in('lesson_id', lessonIds);
+                if (qErr) { console.error('[subject] quizzes failed to load:', qErr); quizErr = true; }
+                else quizzes = data || [];
             }
 
-            // Materials & Notes
-            if (mRes.error) {
-                console.error('[subject] study materials failed to load:', mRes.error);
-                document.getElementById('materials-box').innerHTML = secErr('study materials');
-                document.getElementById('notes-box').innerHTML = secErr('notes');
-            } else {
-                (mRes.data || []).forEach(m => { if (m.external_url) extById[m.id] = m.external_url; });
-                const mats = (mRes.data || []).filter(m => (m.category === 'note' ? 'note' : 'material') === 'material');
-                const notes = (mRes.data || []).filter(m => m.category === 'note');
-                const matHtml = list => list.length === 0
-                    ? `<div class="empty-state" style="padding:24px;"><p>Nothing here yet.</p></div>`
-                    : list.map(m => `
-                        <div class="item-row ${m.is_visible ? '' : 'locked'}">
-                            <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
-                            <div class="ir-body"><div class="ir-title">${esc(m.title)}</div><div class="ir-sub">${esc((m.type||'file').toUpperCase())}</div></div>
-                            ${m.is_visible
-                                ? (m.external_url
-                                    ? `<button class="btn btn-primary js-extlink" data-mid="${esc(m.id)}" data-title="${esc(m.title)}">Open</button>`
-                                    : `<button class="btn btn-primary js-read" data-path="${esc(m.storage_path)}" data-title="${esc(m.title)}">Read</button>`)
-                                : LOCK}
-                        </div>`).join('');
-                document.getElementById('materials-box').innerHTML = matHtml(mats);
-                document.getElementById('notes-box').innerHTML = matHtml(notes);
+            const CATS = {
+                presentations: { label: 'Presentations', sub: 'Slides, PDFs & notes', icon: IC_PRES,  grad: 'linear-gradient(135deg,#7c3aed,#a855f7)' },
+                lectures:      { label: 'Video Lectures', sub: 'Recorded video lessons', icon: IC_VIDEO, grad: 'linear-gradient(135deg,#0d2a52,#4a90d9)' },
+                quizzes:       { label: 'Quizzes',       sub: 'Test your knowledge', icon: IC_QUIZ,  grad: 'linear-gradient(135deg,#059669,#10b981)' }
+            };
+
+            function catCard(key, count, err) {
+                const c = CATS[key];
+                const meta = err ? 'Open →' : `${count} ${count === 1 ? 'item' : 'items'} · Open →`;
+                return `<div class="course-card cat-card" data-cat="${key}">
+                    <div class="cc-top" style="background:${c.grad}">${c.icon}</div>
+                    <div class="cc-body">
+                        <div class="cc-title">${c.label}</div>
+                        <div class="cc-sub">${c.sub}</div>
+                        <div class="cc-meta">${meta}</div>
+                    </div>
+                </div>`;
             }
 
-            document.getElementById('page-content').addEventListener('click', e => {
+            // One collapsed accordion entry. The action button (Play / Read / Open / Start) lives in the panel.
+            function accItem({ locked, icon, title, sub, panelHtml }) {
+                return `<div class="acc-item ${locked ? 'locked' : ''}">
+                    <button class="acc-head" type="button">
+                        <span class="acc-icon">${icon}</span>
+                        <span class="acc-titles"><span class="acc-title">${title}</span>${sub ? `<span class="acc-sub">${sub}</span>` : ''}</span>
+                        <svg class="acc-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <div class="acc-panel"><div class="acc-panel-inner">${panelHtml}</div></div>
+                </div>`;
+            }
+
+            function renderCards() {
+                content.innerHTML = `${topCrumbs}
+                    <a class="btn btn-ghost" onclick="history.back()" style="margin-bottom:18px;cursor:pointer;">← Back</a>
+                    <div class="card-grid">
+                        ${catCard('presentations', materials.length, matErr)}
+                        ${catCard('lectures', lectures.length, lecErr)}
+                        ${catCard('quizzes', quizzes.length, quizErr)}
+                    </div>`;
+            }
+
+            function renderCategory(key) {
+                const c = CATS[key];
+                let body = '';
+                if (key === 'presentations') {
+                    if (matErr) body = secErr('presentations');
+                    else if (!materials.length) body = empty('No presentations yet.');
+                    else body = `<div class="accordion">${materials.map(m => {
+                        const sub = esc((m.type || 'file').toUpperCase()) + (m.category === 'note' ? ' · Note' : '');
+                        const action = m.is_visible
+                            ? (m.external_url
+                                ? `<button class="btn btn-primary js-extlink" data-mid="${esc(m.id)}" data-title="${esc(m.title)}">Open</button>`
+                                : `<button class="btn btn-primary js-read" data-path="${esc(m.storage_path)}" data-title="${esc(m.title)}">Read</button>`)
+                            : LOCK;
+                        return accItem({ locked: !m.is_visible, icon: IC_FILE, title: esc(m.title), sub, panelHtml: action });
+                    }).join('')}</div>`;
+                } else if (key === 'lectures') {
+                    if (lecErr) body = secErr('video lectures');
+                    else if (!lectures.length) body = empty('No video lectures yet.');
+                    else body = `<div class="accordion">${lectures.map(r => {
+                        const action = r.is_visible
+                            ? `<button class="btn btn-primary js-play" data-url="${esc(r.aws_url)}" data-title="${esc(r.title)}">▶ Play</button>`
+                            : LOCK;
+                        return accItem({ locked: !r.is_visible, icon: IC_VIDEO, title: esc(r.title), sub: `${esc(r.professor)} · ${fmtDate(r.recorded_date)}`, panelHtml: action });
+                    }).join('')}</div>`;
+                } else {
+                    if (quizErr) body = secErr('quizzes');
+                    else if (!quizzes.length) body = empty('No quizzes yet.');
+                    else body = `<div class="accordion">${quizzes.map(q => {
+                        const action = `<button class="btn btn-primary" onclick="location.href='take-quiz.html?id=${encodeURIComponent(q.id)}'">Start Quiz</button>`;
+                        return accItem({ locked: false, icon: IC_QUIZ, title: `Quiz — ${esc(lessonTitleMap[q.lesson_id] || 'Lesson')}`, sub: 'Answer all questions correctly to pass', panelHtml: action });
+                    }).join('')}</div>`;
+                }
+                content.innerHTML = `${topCrumbs}
+                    <a class="btn btn-ghost js-back-cards" style="margin-bottom:18px;cursor:pointer;">← Back to ${esc(room.name)}</a>
+                    <div class="section-title" style="margin-bottom:16px;">${c.icon} ${c.label}</div>
+                    ${body}`;
+            }
+
+            // Single delegated handler — content is re-rendered on navigation but the container persists.
+            content.addEventListener('click', e => {
+                const card = e.target.closest('.cat-card');
+                if (card) { renderCategory(card.dataset.cat); window.scrollTo(0, 0); return; }
+                const back = e.target.closest('.js-back-cards');
+                if (back) { renderCards(); window.scrollTo(0, 0); return; }
+                const head = e.target.closest('.acc-head');
+                if (head) { head.parentElement.classList.toggle('open'); return; }
                 const play = e.target.closest('.js-play');
                 if (play) { openVideo(play.dataset.url, play.dataset.title); return; }
                 const ext = e.target.closest('.js-extlink');
@@ -213,27 +261,7 @@
                 if (read) openMaterial(read.dataset.path, read.dataset.title);
             });
 
-            // Quizzes (per-lesson) — only visible/accessible ones are returned by RLS
-            const lessonTitleMap = {}; lessons.forEach(l => lessonTitleMap[l.id] = l.title);
-            const lessonIds = lessons.map(l => l.id);
-            let quizzes = [];
-            if (lessonIds.length) {
-                const { data, error: qErr } = await db.from('quizzes').select('id, lesson_id').in('lesson_id', lessonIds);
-                if (qErr) {
-                    console.error('[subject] quizzes failed to load:', qErr);
-                    document.getElementById('quizzes-box').innerHTML = secErr('quizzes');
-                    return;
-                }
-                quizzes = data || [];
-            }
-            document.getElementById('quizzes-box').innerHTML = quizzes.length === 0
-                ? `<div class="empty-state" style="padding:24px;"><p>No quizzes yet.</p></div>`
-                : quizzes.map(q => `
-                    <div class="item-row">
-                        <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
-                        <div class="ir-body"><div class="ir-title">Quiz — ${esc(lessonTitleMap[q.lesson_id] || 'Lesson')}</div><div class="ir-sub">Answer all questions correctly to pass</div></div>
-                        <button class="btn btn-primary" onclick="location.href='take-quiz.html?id=${encodeURIComponent(q.id)}'">Start Quiz</button>
-                    </div>`).join('');
+            renderCards();
         })();
     </script>
 </body>
