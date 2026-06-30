@@ -136,11 +136,16 @@
 
             const extById = {};   // material id -> external_url (kept out of the DOM)
 
-            const [lRes, recRes, mRes] = await Promise.all([
+            const [lRes, recRes, mRes, sRes] = await Promise.all([
                 db.from('lessons').select('id, title, order_index, is_visible').eq('room_id', roomId).order('order_index', { ascending: true }),
                 db.from('recordings').select('id, title, professor, recorded_date, aws_url, is_visible, kind, order_index').eq('room_id', roomId).eq('kind', 'lecture').order('order_index', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true }),
-                db.from('materials').select('id, title, type, storage_path, external_url, category, is_visible, created_at, order_index').eq('room_id', roomId).order('order_index', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
+                db.from('materials').select('id, title, type, storage_path, external_url, category, is_visible, created_at, order_index').eq('room_id', roomId).order('order_index', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true }),
+                db.from('app_settings').select('key, value').in('key', ['banner_presentations', 'banner_lectures', 'banner_quizzes'])
             ]);
+
+            // Global category banners set once in the admin panel (Appearance). Empty/missing → default colour + icon.
+            const bannerByKey = {};
+            if (!sRes.error) (sRes.data || []).forEach(r => { if (r.value) bannerByKey[r.key] = r.value; });
 
             // Lessons are no longer shown as text, but we still need them to label the quizzes.
             const lessons = lRes.error ? [] : (lRes.data || []);
@@ -167,16 +172,20 @@
             }
 
             const CATS = {
-                presentations: { label: 'Presentations', sub: 'Slides, PDFs & notes', icon: IC_PRES,  grad: 'linear-gradient(135deg,#7c3aed,#a855f7)' },
-                lectures:      { label: 'Video Lectures', sub: 'Recorded video lessons', icon: IC_VIDEO, grad: 'linear-gradient(135deg,#0d2a52,#4a90d9)' },
-                quizzes:       { label: 'Quizzes',       sub: 'Test your knowledge', icon: IC_QUIZ,  grad: 'linear-gradient(135deg,#059669,#10b981)' }
+                presentations: { label: 'Presentations', sub: 'Slides, PDFs & notes', icon: IC_PRES,  grad: 'linear-gradient(135deg,#7c3aed,#a855f7)', bkey: 'banner_presentations' },
+                lectures:      { label: 'Video Lectures', sub: 'Recorded video lessons', icon: IC_VIDEO, grad: 'linear-gradient(135deg,#0d2a52,#4a90d9)', bkey: 'banner_lectures' },
+                quizzes:       { label: 'Quizzes',       sub: 'Test your knowledge', icon: IC_QUIZ,  grad: 'linear-gradient(135deg,#059669,#10b981)', bkey: 'banner_quizzes' }
             };
 
             function catCard(key, count, err) {
                 const c = CATS[key];
                 const meta = err ? 'Open →' : `${count} ${count === 1 ? 'item' : 'items'} · Open →`;
+                const img = bannerByKey[c.bkey];
+                const top = img
+                    ? `<div class="cc-top" style="background:url('${esc(img)}') center/cover;"></div>`
+                    : `<div class="cc-top" style="background:${c.grad}">${c.icon}</div>`;
                 return `<div class="course-card cat-card" data-cat="${key}">
-                    <div class="cc-top" style="background:${c.grad}">${c.icon}</div>
+                    ${top}
                     <div class="cc-body">
                         <div class="cc-title">${c.label}</div>
                         <div class="cc-sub">${c.sub}</div>
