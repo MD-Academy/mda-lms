@@ -194,15 +194,12 @@
                 </div>`;
             }
 
-            // One collapsed accordion entry. The action button (Play / Read / Open / Start) lives in the panel.
-            function accItem({ locked, icon, title, sub, panelHtml }) {
-                return `<div class="acc-item ${locked ? 'locked' : ''}">
-                    <button class="acc-head" type="button">
-                        <span class="acc-icon">${icon}</span>
-                        <span class="acc-titles"><span class="acc-title">${title}</span>${sub ? `<span class="acc-sub">${sub}</span>` : ''}</span>
-                        <svg class="acc-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-                    </button>
-                    <div class="acc-panel"><div class="acc-panel-inner">${panelHtml}</div></div>
+            // One compact row: icon + title on the left, action button (Play / Read / Open / Start) on the right.
+            function itemRow({ locked, icon, title, sub, action }) {
+                return `<div class="item-row ${locked ? 'locked' : ''}">
+                    <div class="ir-icon">${icon}</div>
+                    <div class="ir-body"><div class="ir-title">${title}</div>${sub ? `<div class="ir-sub">${sub}</div>` : ''}</div>
+                    ${action}
                 </div>`;
             }
 
@@ -222,31 +219,31 @@
                 if (key === 'presentations') {
                     if (matErr) body = secErr('presentations');
                     else if (!materials.length) body = empty('No presentations yet.');
-                    else body = `<div class="accordion">${materials.map(m => {
+                    else body = materials.map(m => {
                         const sub = esc((m.type || 'file').toUpperCase()) + (m.category === 'note' ? ' · Note' : '');
                         const action = m.is_visible
                             ? (m.external_url
                                 ? `<button class="btn btn-primary js-extlink" data-mid="${esc(m.id)}" data-title="${esc(m.title)}">Open</button>`
                                 : `<button class="btn btn-primary js-read" data-path="${esc(m.storage_path)}" data-title="${esc(m.title)}">Read</button>`)
                             : LOCK;
-                        return accItem({ locked: !m.is_visible, icon: IC_FILE, title: esc(m.title), sub, panelHtml: action });
-                    }).join('')}</div>`;
+                        return itemRow({ locked: !m.is_visible, icon: IC_FILE, title: esc(m.title), sub, action });
+                    }).join('');
                 } else if (key === 'lectures') {
                     if (lecErr) body = secErr('video lectures');
                     else if (!lectures.length) body = empty('No video lectures yet.');
-                    else body = `<div class="accordion">${lectures.map(r => {
+                    else body = lectures.map(r => {
                         const action = r.is_visible
                             ? `<button class="btn btn-primary js-play" data-url="${esc(r.aws_url)}" data-title="${esc(r.title)}">▶ Play</button>`
                             : LOCK;
-                        return accItem({ locked: !r.is_visible, icon: IC_VIDEO, title: esc(r.title), sub: `${esc(r.professor)} · ${fmtDate(r.recorded_date)}`, panelHtml: action });
-                    }).join('')}</div>`;
+                        return itemRow({ locked: !r.is_visible, icon: IC_VIDEO, title: esc(r.title), sub: `${esc(r.professor)} · ${fmtDate(r.recorded_date)}`, action });
+                    }).join('');
                 } else {
                     if (quizErr) body = secErr('quizzes');
                     else if (!quizzes.length) body = empty('No quizzes yet.');
-                    else body = `<div class="accordion">${quizzes.map(q => {
+                    else body = quizzes.map(q => {
                         const action = `<button class="btn btn-primary" onclick="location.href='take-quiz.html?id=${encodeURIComponent(q.id)}'">Start Quiz</button>`;
-                        return accItem({ locked: false, icon: IC_QUIZ, title: `Quiz — ${esc(lessonTitleMap[q.lesson_id] || 'Lesson')}`, sub: 'Answer all questions correctly to pass', panelHtml: action });
-                    }).join('')}</div>`;
+                        return itemRow({ locked: false, icon: IC_QUIZ, title: `Quiz — ${esc(lessonTitleMap[q.lesson_id] || 'Lesson')}`, sub: 'Answer all questions correctly to pass', action });
+                    }).join('');
                 }
                 content.innerHTML = `${topCrumbs}
                     <a class="btn btn-ghost js-back-cards" style="margin-bottom:18px;cursor:pointer;">← Back to ${esc(room.name)}</a>
@@ -260,8 +257,6 @@
                 if (card) { renderCategory(card.dataset.cat); window.scrollTo(0, 0); return; }
                 const back = e.target.closest('.js-back-cards');
                 if (back) { renderCards(); window.scrollTo(0, 0); return; }
-                const head = e.target.closest('.acc-head');
-                if (head) { head.parentElement.classList.toggle('open'); return; }
                 const play = e.target.closest('.js-play');
                 if (play) { openVideo(play.dataset.url, play.dataset.title); return; }
                 const ext = e.target.closest('.js-extlink');
