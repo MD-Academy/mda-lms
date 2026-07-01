@@ -112,6 +112,10 @@
             const courseId = new URLSearchParams(location.search).get('course');
             if (!roomId) { location.href = 'courses.html'; return; }
 
+            // Remember the last presentation opened so we can highlight it on return.
+            const LAST_KEY = 'lastReadMat:' + roomId;
+            let lastReadId = sessionStorage.getItem(LAST_KEY) || '';
+
             const { data: room, error: roomErr } = await db.from('rooms').select('id, name, description, is_visible').eq('id', roomId).single();
             if (roomErr && roomErr.code !== 'PGRST116') {  // PGRST116 = no rows (hidden/not enrolled) → redirect; anything else is a real failure
                 console.error('[subject] subject failed to load:', roomErr);
@@ -187,8 +191,9 @@
             }
 
             // One compact row: icon + title on the left, action button (Play / Read / Open / Start) on the right.
-            function itemRow({ locked, icon, title, sub, action }) {
-                return `<div class="item-row ${locked ? 'locked' : ''}">
+            function itemRow({ locked, icon, title, sub, action, mid }) {
+                const hl = mid && mid === lastReadId ? ' just-read' : '';
+                return `<div class="item-row ${locked ? 'locked' : ''}${hl}"${mid ? ` data-mid="${mid}"` : ''}>
                     <div class="ir-icon">${icon}</div>
                     <div class="ir-body"><div class="ir-title">${title}</div>${sub ? `<div class="ir-sub">${sub}</div>` : ''}</div>
                     ${action}
@@ -216,9 +221,9 @@
                         const action = m.is_visible
                             ? (m.external_url
                                 ? `<button class="btn btn-primary js-extlink" data-mid="${esc(m.id)}" data-title="${esc(m.title)}">Open</button>`
-                                : `<button class="btn btn-primary js-read" data-path="${esc(m.storage_path)}" data-title="${esc(m.title)}">Read</button>`)
+                                : `<button class="btn btn-primary js-read" data-mid="${esc(m.id)}" data-path="${esc(m.storage_path)}" data-title="${esc(m.title)}">Read</button>`)
                             : LOCK;
-                        return itemRow({ locked: !m.is_visible, icon: IC_FILE, title: esc(m.title), sub, action });
+                        return itemRow({ locked: !m.is_visible, icon: IC_FILE, title: esc(m.title), sub, action, mid: esc(m.id) });
                     }).join('');
                 } else if (key === 'lectures') {
                     if (lecErr) body = secErr('video lectures');
@@ -243,21 +248,45 @@
                     ${body}`;
             }
 
+            // Render cards or a category based on the requested view.
+            function render(cat) {
+                if (cat && CATS[cat]) {
+                    renderCategory(cat);
+                    // Coming back to Presentations: jump to the last one opened instead of the top.
+                    if (cat === 'presentations' && lastReadId) {
+                        const el = content.querySelector('.item-row.just-read');
+                        if (el) { requestAnimationFrame(() => { try { el.scrollIntoView({ block: 'center' }); } catch (e) {} }); return; }
+                    }
+                } else {
+                    renderCards();
+                }
+                window.scrollTo(0, 0);
+            }
+
+            // Opening a category is a real history step, so Back from a PDF returns to the list (not the cards).
+            function navTo(cat) {
+                const p = new URLSearchParams(location.search);
+                if (cat) p.set('cat', cat); else p.delete('cat');
+                history.pushState({ cat: cat || null }, '', `subject.html?${p.toString()}`);
+                render(cat);
+            }
+            window.addEventListener('popstate', () => render(new URLSearchParams(location.search).get('cat')));
+
             // Single delegated handler — content is re-rendered on navigation but the container persists.
             content.addEventListener('click', e => {
                 const card = e.target.closest('.cat-card');
-                if (card) { renderCategory(card.dataset.cat); window.scrollTo(0, 0); return; }
+                if (card) { navTo(card.dataset.cat); return; }
                 const back = e.target.closest('.js-back-cards');
-                if (back) { renderCards(); window.scrollTo(0, 0); return; }
+                if (back) { if (history.state && history.state.cat) history.back(); else navTo(null); return; }
                 const play = e.target.closest('.js-play');
                 if (play) { openVideo(play.dataset.url, play.dataset.title); return; }
                 const ext = e.target.closest('.js-extlink');
                 if (ext) { openEmbed(extById[ext.dataset.mid], ext.dataset.title); return; }
                 const read = e.target.closest('.js-read');
-                if (read) openMaterial(read.dataset.path, read.dataset.title);
+                if (read) { lastReadId = read.dataset.mid || ''; sessionStorage.setItem(LAST_KEY, lastReadId); openMaterial(read.dataset.path, read.dataset.title); }
             });
 
-            renderCards();
+            render(new URLSearchParams(location.search).get('cat'));
         })();
     </script>
 </body>
