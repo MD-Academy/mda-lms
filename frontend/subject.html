@@ -136,20 +136,16 @@
 
             const extById = {};   // material id -> external_url (kept out of the DOM)
 
-            const [lRes, recRes, mRes, sRes] = await Promise.all([
-                db.from('lessons').select('id, title, order_index, is_visible').eq('room_id', roomId).order('order_index', { ascending: true }),
+            const [recRes, mRes, qRes, sRes] = await Promise.all([
                 db.from('recordings').select('id, title, professor, recorded_date, aws_url, is_visible, kind, order_index').eq('room_id', roomId).eq('kind', 'lecture').order('order_index', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true }),
                 db.from('materials').select('id, title, type, storage_path, external_url, category, is_visible, created_at, order_index').eq('room_id', roomId).order('order_index', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true }),
+                db.from('quizzes').select('id, title, is_visible').eq('room_id', roomId),
                 db.from('app_settings').select('key, value').in('key', ['banner_presentations', 'banner_lectures', 'banner_quizzes'])
             ]);
 
             // Global category banners set once in the admin panel (Appearance). Empty/missing → default colour + icon.
             const bannerByKey = {};
             if (!sRes.error) (sRes.data || []).forEach(r => { if (r.value) bannerByKey[r.key] = r.value; });
-
-            // Lessons are no longer shown as text, but we still need them to label the quizzes.
-            const lessons = lRes.error ? [] : (lRes.data || []);
-            const lessonTitleMap = {}; lessons.forEach(l => lessonTitleMap[l.id] = l.title);
 
             // Video Lectures
             const lecErr = !!recRes.error;
@@ -162,14 +158,10 @@
             const materials = matErr ? [] : (mRes.data || []);
             materials.forEach(m => { if (m.external_url) extById[m.id] = m.external_url; });
 
-            // Quizzes (per-lesson) — only visible/accessible ones are returned by RLS
-            let quizErr = false, quizzes = [];
-            const lessonIds = lessons.map(l => l.id);
-            if (lessonIds.length) {
-                const { data, error: qErr } = await db.from('quizzes').select('id, lesson_id').in('lesson_id', lessonIds);
-                if (qErr) { console.error('[subject] quizzes failed to load:', qErr); quizErr = true; }
-                else quizzes = data || [];
-            }
+            // Quizzes attach to the subject — only visible/accessible ones are returned by RLS.
+            const quizErr = !!qRes.error;
+            if (quizErr) console.error('[subject] quizzes failed to load:', qRes.error);
+            const quizzes = (quizErr ? [] : (qRes.data || [])).filter(q => q.is_visible !== false);
 
             const CATS = {
                 presentations: { label: 'Presentations', sub: 'Slides, PDFs & notes', icon: IC_PRES,  grad: 'linear-gradient(135deg,#7c3aed,#a855f7)', bkey: 'banner_presentations' },
@@ -242,7 +234,7 @@
                     else if (!quizzes.length) body = empty('No quizzes yet.');
                     else body = quizzes.map(q => {
                         const action = `<button class="btn btn-primary" onclick="location.href='take-quiz.html?id=${encodeURIComponent(q.id)}'">Start Quiz</button>`;
-                        return itemRow({ locked: false, icon: IC_QUIZ, title: `Quiz — ${esc(lessonTitleMap[q.lesson_id] || 'Lesson')}`, sub: 'Answer all questions correctly to pass', action });
+                        return itemRow({ locked: false, icon: IC_QUIZ, title: esc(q.title || 'Quiz'), sub: 'Answer all questions correctly to pass', action });
                     }).join('');
                 }
                 content.innerHTML = `${topCrumbs}

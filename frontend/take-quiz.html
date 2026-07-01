@@ -55,7 +55,7 @@
             content.innerHTML = `
                 <div class="exam-meta">
                     ${QUIZ.time_limit_minutes ? `<span class="timer" id="timer"></span>` : ''}
-                    <h2>Quiz</h2>
+                    <h2>${esc(QUIZ.title || 'Quiz')}</h2>
                     <p>Answer <strong>all ${QUESTIONS.length}</strong> questions correctly to pass.</p>
                 </div>
                 <div id="questions">${QUESTIONS.map((q, i) => {

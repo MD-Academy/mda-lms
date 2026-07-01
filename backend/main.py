@@ -1003,14 +1003,13 @@ class QuizSubmitReq(BaseModel):
 
 
 def _verify_quiz_access(user_id: str, quiz_id: str):
-    qz = supabase.table("quizzes").select("id, lesson_id, time_limit_minutes, cooldown_minutes, is_visible").eq("id", quiz_id).limit(1).execute().data
+    qz = supabase.table("quizzes").select("id, room_id, title, time_limit_minutes, cooldown_minutes, is_visible").eq("id", quiz_id).limit(1).execute().data
     if not qz or not qz[0].get("is_visible"):
         raise HTTPException(status_code=403, detail="This quiz isn't available.")
     q = qz[0]
-    les = supabase.table("lessons").select("room_id, is_visible").eq("id", q["lesson_id"]).limit(1).execute().data
-    if not les or not les[0].get("is_visible"):
+    room_id = q.get("room_id")
+    if not room_id:
         raise HTTPException(status_code=403, detail="This quiz isn't available.")
-    room_id = les[0]["room_id"]
     rm = supabase.table("rooms").select("is_visible").eq("id", room_id).limit(1).execute().data
     if not rm or not rm[0].get("is_visible"):
         raise HTTPException(status_code=403, detail="This quiz isn't available.")
@@ -1054,7 +1053,7 @@ def student_quiz_questions(body: QuizQReq, authorization: str = Header(...)):
     q = _verify_quiz_access(user.id, body.quiz_id)
     qs = supabase.table("quiz_questions").select("id, question_text, options_json, order_index").eq("quiz_id", body.quiz_id).order("order_index").execute().data or []
     return {
-        "quiz": {"id": q["id"], "time_limit_minutes": q.get("time_limit_minutes"), "cooldown_minutes": q.get("cooldown_minutes")},
+        "quiz": {"id": q["id"], "title": q.get("title"), "time_limit_minutes": q.get("time_limit_minutes"), "cooldown_minutes": q.get("cooldown_minutes")},
         "questions": qs,
         "cooldown_remaining": _cooldown_remaining(user.id, body.quiz_id, q.get("cooldown_minutes") or 0)
     }
