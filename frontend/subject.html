@@ -124,7 +124,7 @@
                 return;
             }
             if (!room || !room.is_visible) { location.href = 'courses.html'; return; }
-            renderLayout('courses', room.name, 'Lessons, lectures & materials', auth.profile);
+            renderLayout('courses', room.name, 'Presentations, video lectures & quizzes', auth.profile);
 
             // Breadcrumb trail: My Courses → [Course] → [Subject]. Course step appears when we know which course we came from.
             const crumbItems = [{ label: 'My Courses', href: 'courses.html' }];
