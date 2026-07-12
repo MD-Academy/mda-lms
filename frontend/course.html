@@ -57,6 +57,74 @@
                 </div>`;
         }
 
+        // Grades: written exams (weighted) + oral presentations (weighted, with feedback) + teacher adjustment.
+        // Overall = weighted average of GRADED items (current standing) + adjustment. RLS returns only this student's own data.
+        async function loadGrades(courseId){
+            const box = document.getElementById('grades-box');
+            if (!box) return;
+
+            const { data: ec } = await db.from('exam_courses').select('exam_id').eq('course_id', courseId);
+            const examIds = [...new Set((ec || []).map(r => r.exam_id))];
+            let exams = [];
+            if (examIds.length) {
+                const { data } = await db.from('exams').select('id, title, weight_percent, is_visible').in('id', examIds);
+                exams = (data || []).filter(e => e.is_visible !== false);
+            }
+            const { data: oralsData } = await db.from('oral_presentations')
+                .select('id, title, weight_percent, order_index').eq('course_id', courseId)
+                .order('order_index', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true });
+            const orals = oralsData || [];
+
+            if (exams.length === 0 && orals.length === 0) { box.innerHTML = ''; return; }
+
+            const [atR, ogR, adjR] = await Promise.all([
+                examIds.length ? db.from('exam_attempts').select('exam_id, score').in('exam_id', examIds) : Promise.resolve({ data: [] }),
+                orals.length ? db.from('oral_grades').select('oral_presentation_id, score, feedback') : Promise.resolve({ data: [] }),
+                db.from('course_grade_adjustments').select('adjustment, note').eq('course_id', courseId)
+            ]);
+            const attemptBy = {}; (atR.data || []).forEach(a => { attemptBy[a.exam_id] = a; });
+            const oralBy = {}; (ogR.data || []).forEach(g => { oralBy[g.oral_presentation_id] = g; });
+            const adj = (adjR.data || [])[0] || null;
+            const adjVal = adj ? Number(adj.adjustment || 0) : 0;
+
+            let earned = 0, wsum = 0, graded = 0;
+            const total = exams.length + orals.length;
+            exams.forEach(e => { const a = attemptBy[e.id]; if (a && a.score != null) { earned += Number(a.score) * Number(e.weight_percent || 0); wsum += Number(e.weight_percent || 0); graded++; } });
+            orals.forEach(o => { const g = oralBy[o.id]; if (g && g.score != null) { earned += Number(g.score) * Number(o.weight_percent || 0); wsum += Number(o.weight_percent || 0); graded++; } });
+            const net = wsum > 0 ? earned / wsum : null;
+            const overall = net != null ? Math.max(0, Math.min(100, net + adjVal)) : null;
+
+            const pendPill = '<span style="color:var(--text-muted);font-weight:600;">Pending</span>';
+            const row = (icon, title, sub, scoreHtml, fbHtml) => `
+                <div class="att-day" style="align-items:flex-start;flex-wrap:wrap;">
+                    <span class="d">${icon} <strong>${title}</strong><br><span style="font-size:12px;color:var(--text-muted);">${sub}</span></span>
+                    <span style="font-weight:800;color:var(--navy-800);">${scoreHtml}</span>
+                    ${fbHtml}
+                </div>`;
+            const rowsHtml = [
+                ...exams.map(e => { const a = attemptBy[e.id]; const sc = (a && a.score != null) ? Math.round(a.score) + '%' : pendPill; return row('📝', esc(e.title), 'Written exam · ' + Number(e.weight_percent) + '%', sc, ''); }),
+                ...orals.map(o => { const g = oralBy[o.id]; const sc = (g && g.score != null) ? Math.round(g.score) + '%' : pendPill; const fb = (g && g.feedback) ? `<div style="flex-basis:100%;margin-top:8px;font-size:13px;color:var(--text);background:var(--bg);border-left:3px solid var(--blue-400);padding:9px 11px;border-radius:6px;line-height:1.55;"><strong style="color:var(--navy-800);">Feedback:</strong> ${esc(g.feedback)}</div>` : ''; return row('🎤', esc(o.title), 'Oral presentation · ' + Number(o.weight_percent) + '%', sc, fb); })
+            ].join('');
+
+            const color = overall == null ? '' : (overall >= 60 ? 'att-green' : (overall >= 50 ? 'att-amber' : 'att-red'));
+            const adjLine = (adj && adjVal !== 0)
+                ? `<div class="att-warn" style="background:#eff5ff;color:#1e3a5f;border-color:#bfdbfe;">Teacher adjustment: <strong>${adjVal > 0 ? '+' + adjVal : adjVal}</strong>${adj.note ? ' · ' + esc(adj.note) : ''}</div>`
+                : '';
+            box.innerHTML = `
+                <div class="section">
+                    <div class="section-title">🎓 My Grades</div>
+                    <div class="att-card">
+                        <div class="att-summary">
+                            <div class="att-big ${color}">${overall != null ? Math.round(overall) + '%' : '—'}</div>
+                            <div class="att-sub">${net != null ? 'Overall score · ' + graded + ' of ' + total + ' items graded' : 'No grades entered yet'}</div>
+                        </div>
+                        ${adjLine}
+                        <div class="att-list">${rowsHtml}</div>
+                        <p style="font-size:12px;color:var(--text-muted);margin-top:12px;line-height:1.5;">Your overall score is a weighted average of the items graded so far, plus any teacher adjustment. It updates as more exams and presentations are graded.</p>
+                    </div>
+                </div>`;
+        }
+
         (async () => {
             const auth = await requireStudent();
             if (!auth) return;
@@ -80,9 +148,11 @@
                 <a class="btn btn-ghost" href="courses.html" style="margin-bottom:18px;">← All Courses</a>
                 ${course.expires_at ? `<div style="font-size:13px;color:var(--text-muted);margin:-6px 0 18px;display:flex;align-items:center;gap:6px;">🗓️ This course will expire on ${fmtDay(course.expires_at)}.</div>` : ''}
                 <div id="box"><div class="loader">Loading subjects…</div></div>
-                <div id="att-box" style="margin-top:24px;"></div>`;
+                <div id="att-box" style="margin-top:24px;"></div>
+                <div id="grades-box" style="margin-top:24px;"></div>`;
             const box = document.getElementById('box');
             loadAttendance(courseId);   // independent of subjects; renders only once classes exist
+            loadGrades(courseId);       // exams + oral presentations + overall score
 
             const { data: cs, error: csErr } = await db.from('course_subjects').select('room_id').eq('course_id', courseId);
             if (csErr) { console.error('[course] subjects failed to load:', csErr); box.innerHTML = errBox('subjects'); return; }
