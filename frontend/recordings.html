@@ -40,6 +40,10 @@
             if (!auth) return;
             renderLayout('recordings', 'Zoom Recordings', 'Class recordings for your courses', auth.profile);
             document.getElementById('page-content').innerHTML = `
+                <div class="section" id="live-section" style="display:none;margin-bottom:26px;">
+                    <div class="section-title">🔴 Live Class Links</div>
+                    <div id="live-links"></div>
+                </div>
                 <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:18px;">
                     <input type="text" id="search-input" placeholder="Search by title or professor…" style="flex:1;min-width:200px;height:42px;border:1.5px solid var(--border);border-radius:10px;padding:0 14px;font-family:inherit;font-size:14px;outline:none;">
                     <label style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:6px;">From <input type="date" id="date-from" style="height:40px;border:1.5px solid var(--border);border-radius:8px;padding:0 8px;font-family:inherit;"></label>
@@ -60,6 +64,40 @@
 
             let currentPage = 1, pageSize = 25, totalCount = 0, searchQuery = '', dateFrom = '', dateTo = '', timer = null;
             const box = document.getElementById('box');
+
+            // Live class join links (per enrolled course) — read-only for students.
+            async function loadLiveLinks() {
+                const { data, error } = await db.from('meeting_links')
+                    .select('id, title, host_name, url, course_id, courses(name)')
+                    .order('created_at', { ascending: false });
+                if (error) { console.error('[recordings] live links failed:', error); return; }
+                const links = data || [];
+                if (!links.length) return;   // section stays hidden
+                const wrap = document.getElementById('live-links');
+                wrap.innerHTML = links.map(l => {
+                    const safeUrl = /^https?:\/\//i.test(l.url) ? l.url : '';
+                    const cname = l.courses && l.courses.name ? ' · ' + esc(l.courses.name) : '';
+                    return `<div class="item-row">
+                        <div class="ir-icon" style="background:linear-gradient(135deg,#b91c5c,#e11d48);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
+                        <div class="ir-body"><div class="ir-title">${esc(l.title)}</div><div class="ir-sub">${esc(l.host_name)}${cname}</div></div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <button class="btn btn-ghost js-copy" data-url="${esc(safeUrl)}">Copy</button>
+                            ${safeUrl ? `<a class="btn btn-primary" href="${esc(safeUrl)}" target="_blank" rel="noopener noreferrer">Open ↗</a>` : ''}
+                        </div>
+                    </div>`;
+                }).join('');
+                document.getElementById('live-section').style.display = '';
+            }
+            document.getElementById('live-links').addEventListener('click', async e => {
+                const c = e.target.closest('.js-copy'); if (!c) return;
+                const url = c.dataset.url; if (!url) return;
+                const orig = c.textContent;
+                try { await navigator.clipboard.writeText(url); }
+                catch (err) { window.prompt('Copy this link:', url); return; }
+                c.textContent = 'Copied ✓';
+                setTimeout(() => { c.textContent = orig; }, 1500);
+            });
+            loadLiveLinks();
 
             box.addEventListener('click', e => { const b = e.target.closest('.js-play'); if (b) openVideo(b.dataset.url, b.dataset.title); });
             document.getElementById('search-input').addEventListener('input', () => {
