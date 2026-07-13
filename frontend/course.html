@@ -29,12 +29,11 @@
             if (!box) return;
             FB_COURSE_ID = courseId;
             const [ctRes, fbRes] = await Promise.all([
-                db.from('course_teachers').select('teacher_id').eq('course_id', courseId),
+                db.from('course_teachers').select('teacher_id, teacher_name').eq('course_id', courseId),
                 db.from('feedback').select('id, target_type, target_id, stars, comment').eq('course_id', courseId)
             ]);
-            const teacherIds = [...new Set((ctRes.data || []).map(r => r.teacher_id))];
-            let teachers = [];
-            if (teacherIds.length) { const { data } = await db.from('profiles').select('id, full_name').in('id', teacherIds); teachers = data || []; }
+            // Name is stored on the row — students can't read staff profiles directly.
+            const teachers = (ctRes.data || []).map(r => ({ id: r.teacher_id, full_name: r.teacher_name || 'Teacher' }));
             FB = {};
             (fbRes.data || []).forEach(f => { FB[fbKey(f.target_type, f.target_id)] = f; });
 

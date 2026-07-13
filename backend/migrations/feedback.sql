@@ -10,12 +10,17 @@
 
 -- Which staff teach a course (so students know who to rate).
 create table if not exists course_teachers (
-    course_id   uuid not null references courses(id) on delete cascade,
-    teacher_id  uuid not null references profiles(id) on delete cascade,
-    created_at  timestamptz not null default now(),
+    course_id    uuid not null references courses(id) on delete cascade,
+    teacher_id   uuid not null references profiles(id) on delete cascade,
+    teacher_name text,                    -- denormalised: students can't read staff profiles
+    created_at   timestamptz not null default now(),
     primary key (course_id, teacher_id)
 );
 create index if not exists idx_course_teachers_course on course_teachers(course_id);
+-- If the table already existed, add the column and backfill from profiles.
+alter table course_teachers add column if not exists teacher_name text;
+update course_teachers ct set teacher_name = p.full_name
+    from profiles p where p.id = ct.teacher_id and (ct.teacher_name is null or ct.teacher_name = '');
 
 -- One rating per student per target.
 create table if not exists feedback (
