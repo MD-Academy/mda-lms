@@ -1457,3 +1457,38 @@ def set_ticket_status(body: TicketStatusReq, _=Depends(get_admin_user), authoriz
         logger.error("Ticket status notification failed: %s", e)
 
     return {"success": True}
+
+
+# ── STAFF WORK HOURS (tamper-proof clock in/out; times are server-stamped) ──
+# Admins/teachers can only stamp "now" via these endpoints (service role writes,
+# no client write access). One open session at a time; closed sessions are immutable.
+
+class ClockInReq(BaseModel):
+    note: Optional[str] = None
+
+
+@app.post("/work/clock-in")
+def work_clock_in(body: ClockInReq, user=Depends(get_admin_user)):
+    """Start a work session. Server sets started_at; blocks a second open session."""
+    from datetime import datetime, timezone
+    open_s = supabase.table("work_sessions").select("id").eq("admin_id", user.id).is_("ended_at", "null").limit(1).execute().data
+    if open_s:
+        raise HTTPException(status_code=400, detail="You're already clocked in. Clock out first.")
+    note = (body.note or "").strip()[:500] or None
+    res = supabase.table("work_sessions").insert({
+        "admin_id": user.id,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "note": note,
+    }).execute()
+    return {"session": (res.data or [None])[0]}
+
+
+@app.post("/work/clock-out")
+def work_clock_out(user=Depends(get_admin_user)):
+    """Close the caller's open work session. Server sets ended_at."""
+    from datetime import datetime, timezone
+    open_s = supabase.table("work_sessions").select("id").eq("admin_id", user.id).is_("ended_at", "null").order("started_at", desc=True).limit(1).execute().data
+    if not open_s:
+        raise HTTPException(status_code=400, detail="You're not clocked in.")
+    supabase.table("work_sessions").update({"ended_at": datetime.now(timezone.utc).isoformat()}).eq("id", open_s[0]["id"]).execute()
+    return {"success": True}
