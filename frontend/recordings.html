@@ -8,9 +8,29 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/student.css">
+    <style>
+        .rate-overlay { position: fixed; inset: 0; background: rgba(10,18,40,.55); display: none; align-items: center; justify-content: center; z-index: 2200; padding: 20px; }
+        .rate-overlay.open { display: flex; }
+        .rate-box { background: var(--card); border-radius: 16px; padding: 24px; width: 100%; max-width: 430px; box-shadow: 0 20px 50px rgba(10,18,40,.3); }
+        .rate-box h3 { margin: 0; font-size: 18px; color: var(--navy-800); }
+    </style>
 </head>
 <body>
     <div class="layout" id="app-layout"></div>
+
+    <!-- RATE-AFTER-WATCHING PROMPT -->
+    <div class="rate-overlay" id="rate-overlay">
+        <div class="rate-box">
+            <h3>How was this class?</h3>
+            <p id="rate-sub" style="color:var(--text-muted);font-size:13px;margin:4px 0 14px;"></p>
+            <div class="fb-stars" id="rate-stars"></div>
+            <textarea id="rate-comment" class="fb-comment" rows="2" placeholder="Optional comment…"></textarea>
+            <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;">
+                <button class="btn btn-ghost" onclick="closeRate()">Skip</button>
+                <button class="btn btn-primary" id="rate-save" onclick="saveRate()">Submit</button>
+            </div>
+        </div>
+    </div>
 
     <div class="vid-overlay" id="vid-overlay">
         <div class="vid-box">
@@ -31,13 +51,68 @@
         function fmtDate(d){ return d ? new Date(d).toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short',year:'numeric'}) : ''; }
         const LOCK = '<span class="lock-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Not released yet</span>';
 
+        let STUDENT_UID = null, playedRec = null, RATE = null;
+
         function openVideo(url, title){ document.getElementById('vid-title').textContent = title||'Recording'; const p=document.getElementById('vid-player'); p.src=url; document.getElementById('vid-overlay').classList.add('open'); p.play().catch(()=>{}); }
-        function closeVideo(){ const p=document.getElementById('vid-player'); p.pause(); p.removeAttribute('src'); p.load(); document.getElementById('vid-overlay').classList.remove('open'); }
-        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeVideo(); });
+        function closeVideo(){
+            const p=document.getElementById('vid-player'); p.pause(); p.removeAttribute('src'); p.load();
+            document.getElementById('vid-overlay').classList.remove('open');
+            if (playedRec) { const r = playedRec; playedRec = null; promptRate(r); }   // "rate at the end of the lesson"
+        }
+        document.addEventListener('keydown', e => {
+            if (e.key !== 'Escape') return;
+            if (document.getElementById('rate-overlay').classList.contains('open')) { closeRate(); return; }
+            closeVideo();
+        });
+
+        // Rate a recorded class after watching (attributed to a course the student is enrolled in).
+        async function promptRate(rec){
+            if (!rec || !rec.id) return;
+            const { data: ex } = await db.from('feedback').select('id, stars, comment, course_id').eq('target_type', 'recording').eq('target_id', rec.id).limit(1);
+            const existing = (ex || [])[0];
+            let courseId = existing ? existing.course_id : null;
+            if (!courseId) {
+                const { data: rc } = await db.from('recording_courses').select('course_id').eq('recording_id', rec.id);
+                courseId = ((rc || [])[0] || {}).course_id || null;   // RLS returns only the student's enrolled courses
+            }
+            if (!courseId) return;   // can't attribute to a course → skip quietly
+            RATE = { recId: rec.id, courseId, selected: existing ? existing.stars : 0, existingId: existing ? existing.id : null };
+            document.getElementById('rate-sub').textContent = rec.title || '';
+            document.getElementById('rate-comment').value = (existing && existing.comment) ? existing.comment : '';
+            renderRateStars(RATE.selected);
+            const btn = document.getElementById('rate-save');
+            btn.textContent = existing ? 'Update' : 'Submit'; btn.disabled = false;
+            document.getElementById('rate-overlay').classList.add('open');
+        }
+        function renderRateStars(sel){
+            document.getElementById('rate-stars').innerHTML = [1,2,3,4,5].map(i => `<span class="fb-star ${i <= sel ? 'on' : ''}" data-star="${i}">★</span>`).join('');
+        }
+        document.getElementById('rate-stars').addEventListener('click', e => {
+            const s = e.target.closest('.fb-star'); if (!s || !RATE) return;
+            RATE.selected = +s.dataset.star; renderRateStars(RATE.selected);
+        });
+        function closeRate(){ document.getElementById('rate-overlay').classList.remove('open'); RATE = null; }
+        async function saveRate(){
+            if (!RATE || !RATE.selected) return;   // require a star
+            const btn = document.getElementById('rate-save'); btn.disabled = true; btn.textContent = 'Saving…';
+            const comment = document.getElementById('rate-comment').value.trim();
+            try {
+                const payload = { stars: RATE.selected, comment: comment || null, updated_at: new Date().toISOString() };
+                if (RATE.existingId) {
+                    const { error } = await db.from('feedback').update(payload).eq('id', RATE.existingId);
+                    if (error) throw new Error(error.message);
+                } else {
+                    const ins = await db.from('feedback').insert({ student_id: STUDENT_UID, course_id: RATE.courseId, target_type: 'recording', target_id: RATE.recId, ...payload });
+                    if (ins.error) throw new Error(ins.error.message);
+                }
+                closeRate();
+            } catch (err) { alert('Could not save rating: ' + err.message); btn.disabled = false; btn.textContent = 'Submit'; }
+        }
 
         (async () => {
             const auth = await requireStudent();
             if (!auth) return;
+            STUDENT_UID = auth.session.user.id;
             renderLayout('recordings', 'Zoom Recordings', 'Class recordings for your courses', auth.profile);
             document.getElementById('page-content').innerHTML = `
                 <div class="section" id="live-section" style="display:none;margin-bottom:26px;">
@@ -99,7 +174,7 @@
             });
             loadLiveLinks();
 
-            box.addEventListener('click', e => { const b = e.target.closest('.js-play'); if (b) openVideo(b.dataset.url, b.dataset.title); });
+            box.addEventListener('click', e => { const b = e.target.closest('.js-play'); if (b) { playedRec = { id: b.dataset.id, title: b.dataset.title }; openVideo(b.dataset.url, b.dataset.title); } });
             document.getElementById('search-input').addEventListener('input', () => {
                 clearTimeout(timer);
                 timer = setTimeout(() => { searchQuery = document.getElementById('search-input').value.trim(); currentPage = 1; load(); }, 300);
@@ -139,7 +214,7 @@
                     <div class="item-row ${r.is_visible ? '' : 'locked'}">
                         <div class="ir-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
                         <div class="ir-body"><div class="ir-title">${esc(r.title)}</div><div class="ir-sub">${esc(r.professor)} · ${fmtDate(r.recorded_date)}</div></div>
-                        ${r.is_visible ? `<button class="btn btn-primary js-play" data-url="${esc(r.aws_url)}" data-title="${esc(r.title)}">▶ Play</button>` : LOCK}
+                        ${r.is_visible ? `<button class="btn btn-primary js-play" data-id="${esc(r.id)}" data-url="${esc(r.aws_url)}" data-title="${esc(r.title)}">▶ Play</button>` : LOCK}
                     </div>`).join('');
                 renderPager();
             }

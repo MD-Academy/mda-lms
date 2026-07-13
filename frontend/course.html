@@ -20,6 +20,105 @@
         function esc(s){ return s ? String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) : ''; }
         function fmtDay(d){ return d ? new Date(d + 'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : ''; }
 
+        // ── COURSE FEEDBACK (ratings for course / teachers / materials) ──
+        let STUDENT_UID = null, FB = {}, FB_COURSE_ID = null;
+        function fbKey(type, id){ return type + ':' + (id || ''); }
+
+        async function loadFeedback(courseId){
+            const box = document.getElementById('feedback-box');
+            if (!box) return;
+            FB_COURSE_ID = courseId;
+            const [ctRes, fbRes] = await Promise.all([
+                db.from('course_teachers').select('teacher_id').eq('course_id', courseId),
+                db.from('feedback').select('id, target_type, target_id, stars, comment').eq('course_id', courseId)
+            ]);
+            const teacherIds = [...new Set((ctRes.data || []).map(r => r.teacher_id))];
+            let teachers = [];
+            if (teacherIds.length) { const { data } = await db.from('profiles').select('id, full_name').in('id', teacherIds); teachers = data || []; }
+            FB = {};
+            (fbRes.data || []).forEach(f => { FB[fbKey(f.target_type, f.target_id)] = f; });
+
+            const cards = [];
+            cards.push(fbCard('Overall course', 'How would you rate this course overall?', 'course', null));
+            cards.push(fbCard('Study materials', 'Slides, PDFs and resources provided.', 'materials', null));
+            teachers.forEach(t => cards.push(fbCard(esc(t.full_name || 'Teacher'), 'Rate this teacher and leave feedback.', 'teacher', t.id)));
+
+            box.innerHTML = `
+                <div class="section">
+                    <div class="section-title">⭐ Course Feedback</div>
+                    <div class="att-card">
+                        <p style="font-size:13px;color:var(--text-muted);margin:-4px 0 14px;line-height:1.5;">Your feedback is private and <strong>anonymous to teachers</strong> — it helps the Academy improve. You can update it anytime.</p>
+                        <div style="display:flex;flex-direction:column;gap:14px;">${cards.join('')}</div>
+                    </div>
+                </div>`;
+
+            if (!box._fbBound) {
+                box._fbBound = true;
+                box.addEventListener('click', onFeedbackClick);
+            }
+        }
+
+        function fbCard(title, sub, type, targetId){
+            const existing = FB[fbKey(type, targetId)];
+            const cur = existing ? existing.stars : 0;
+            const comment = existing && existing.comment ? existing.comment : '';
+            return `<div class="fb-card" data-type="${type}" data-target="${targetId || ''}" data-selected="${cur}">
+                <div style="font-weight:700;color:var(--navy-800);">${title}</div>
+                <div style="font-size:12px;color:var(--text-muted);margin:2px 0 8px;">${sub}</div>
+                <div class="fb-stars">${[1,2,3,4,5].map(i => `<span class="fb-star ${i <= cur ? 'on' : ''}" data-star="${i}">★</span>`).join('')}</div>
+                <textarea class="fb-comment" rows="2" placeholder="Optional comment…">${esc(comment)}</textarea>
+                <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+                    <button class="btn btn-primary btn-sm fb-save">${existing ? 'Update' : 'Submit'}</button>
+                    <span class="fb-saved" style="font-size:12px;"></span>
+                </div>
+            </div>`;
+        }
+
+        async function onFeedbackClick(e){
+            const star = e.target.closest('.fb-star');
+            if (star){
+                const card = star.closest('.fb-card');
+                const val = +star.dataset.star;
+                card.querySelectorAll('.fb-star').forEach(s => s.classList.toggle('on', +s.dataset.star <= val));
+                card.dataset.selected = val;
+                return;
+            }
+            const save = e.target.closest('.fb-save');
+            if (save) await saveFeedback(save.closest('.fb-card'), save);
+        }
+
+        async function saveFeedback(card, btn){
+            const type = card.dataset.type;
+            const targetId = card.dataset.target || null;
+            const selected = +card.dataset.selected || 0;
+            const saved = card.querySelector('.fb-saved');
+            if (!selected){ saved.style.color = 'var(--red)'; saved.textContent = 'Pick a star rating first.'; return; }
+            const comment = card.querySelector('.fb-comment').value.trim();
+            const key = fbKey(type, targetId);
+            const existing = FB[key];
+            btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Saving…'; saved.textContent = '';
+            try {
+                const payload = { stars: selected, comment: comment || null, updated_at: new Date().toISOString() };
+                let row;
+                if (existing && existing.id){
+                    const { error } = await db.from('feedback').update(payload).eq('id', existing.id);
+                    if (error) throw new Error(error.message);
+                    row = { ...existing, ...payload };
+                } else {
+                    const ins = await db.from('feedback').insert({ student_id: STUDENT_UID, course_id: FB_COURSE_ID, target_type: type, target_id: targetId, ...payload }).select('id').single();
+                    if (ins.error) throw new Error(ins.error.message);
+                    row = { id: ins.data.id, target_type: type, target_id: targetId, ...payload };
+                }
+                FB[key] = row;
+                saved.style.color = 'var(--green)'; saved.textContent = 'Saved ✓';
+                setTimeout(() => { saved.textContent = ''; }, 2000);
+                btn.textContent = 'Update';
+            } catch (err) {
+                saved.style.color = 'var(--red)'; saved.textContent = err.message;
+                btn.textContent = orig;
+            } finally { btn.disabled = false; }
+        }
+
         // Read-only attendance for this student in this course. They see only their own marks (enforced by RLS).
         async function loadAttendance(courseId){
             const box = document.getElementById('att-box');
@@ -128,6 +227,7 @@
         (async () => {
             const auth = await requireStudent();
             if (!auth) return;
+            STUDENT_UID = auth.session.user.id;
             const courseId = new URLSearchParams(location.search).get('id');
             if (!courseId) { location.href = 'courses.html'; return; }
 
@@ -149,10 +249,12 @@
                 ${course.expires_at ? `<div style="font-size:13px;color:var(--text-muted);margin:-6px 0 18px;display:flex;align-items:center;gap:6px;">🗓️ This course will expire on ${fmtDay(course.expires_at)}.</div>` : ''}
                 <div id="box"><div class="loader">Loading subjects…</div></div>
                 <div id="att-box" style="margin-top:24px;"></div>
-                <div id="grades-box" style="margin-top:24px;"></div>`;
+                <div id="grades-box" style="margin-top:24px;"></div>
+                <div id="feedback-box" style="margin-top:24px;"></div>`;
             const box = document.getElementById('box');
             loadAttendance(courseId);   // independent of subjects; renders only once classes exist
             loadGrades(courseId);       // exams + oral presentations + overall score
+            loadFeedback(courseId);     // ratings: course / teachers / materials
 
             const { data: cs, error: csErr } = await db.from('course_subjects').select('room_id').eq('course_id', courseId);
             if (csErr) { console.error('[course] subjects failed to load:', csErr); box.innerHTML = errBox('subjects'); return; }

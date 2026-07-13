@@ -301,6 +301,15 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 /* ── CATEGORY CARDS (Presentations / Video Lectures / Quizzes) ── */
 .cat-card { cursor: pointer; }
 
+/* ── FEEDBACK (star ratings) ── */
+.fb-card { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; background: var(--card); }
+.fb-stars { display: inline-flex; gap: 5px; font-size: 26px; line-height: 1; cursor: pointer; user-select: none; }
+.fb-star { color: #d1d5db; transition: color .1s; }
+.fb-star.on { color: #f59e0b; }
+.fb-star:hover { color: #fbbf24; }
+.fb-comment { width: 100%; margin-top: 10px; border: 1.5px solid var(--border); border-radius: 8px; padding: 8px 10px; font-family: inherit; font-size: 13px; resize: vertical; outline: none; }
+.fb-comment:focus { border-color: var(--blue-400); }
+
 /* The last presentation opened — highlighted briefly when returning from the reader. */
 .item-row.just-read { border-color: var(--blue-400); box-shadow: 0 0 0 2px rgba(74,144,217,.35); animation: justread 2.4s ease-out 1; }
 @keyframes justread { 0% { background: #eff5ff; } 100% { background: var(--card); } }
