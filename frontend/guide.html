@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="assets/images/favicon.png?v=1">
+    <title>Medical Doctor Academy — User Guide</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/student.css">
+    <style>
+        .guide { max-width: 820px; }
+        .guide-intro { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; font-size: 14px; line-height: 1.6; color: var(--text-muted); }
+        .guide details { background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 10px; overflow: hidden; }
+        .guide summary { cursor: pointer; padding: 14px 18px; font-weight: 700; color: var(--navy-800); font-size: 15px; list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .guide summary::-webkit-details-marker { display: none; }
+        .guide summary::after { content: '▸'; color: var(--text-muted); transition: transform .2s; flex-shrink: 0; }
+        .guide details[open] summary::after { transform: rotate(90deg); }
+        .guide details[open] summary { border-bottom: 1px solid var(--border); }
+        .guide-body { padding: 14px 18px 16px; font-size: 14px; line-height: 1.65; color: var(--text); }
+        .guide-body p { margin: 0 0 10px; }
+        .guide-body ul { margin: 0 0 10px; padding-left: 20px; }
+        .guide-body li { margin: 5px 0; }
+        .guide-body strong { color: var(--navy-800); }
+    </style>
+</head>
+<body>
+    <div class="layout" id="app-layout"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/layout.js"></script>
+    <script>
+        (async () => {
+            const auth = await requireStudent();
+            if (!auth) return;
+            renderLayout('guide', 'User Guide', 'How to use your student portal', auth.profile);
+
+            document.getElementById('page-content').innerHTML = `
+            <div class="guide">
+                <div class="guide-intro">Welcome! This guide explains what each part of your portal does. Tap any section to expand it. If anything shows <strong>"Not released yet"</strong>, your teacher hasn't opened it up yet — check back later.</div>
+
+                <details open><summary>🏠 Dashboard</summary><div class="guide-body">
+                    <p>Your home screen — your enrolled courses, upcoming classes, and the latest announcements at a glance.</p>
+                </div></details>
+
+                <details><summary>🎓 My Courses</summary><div class="guide-body">
+                    <p>Open a course to see its <strong>subjects</strong>. Open a subject to find three cards:</p>
+                    <ul>
+                        <li><strong>Presentations</strong> — slides, PDFs and notes. Tap <strong>Read</strong> to open one (it opens in a protected reader).</li>
+                        <li><strong>Video Lectures</strong> — recorded lessons. Tap <strong>Play</strong>.</li>
+                        <li><strong>Quizzes</strong> — each has 10 questions; you must answer <strong>all correctly to pass</strong>. There's a short cooldown between attempts.</li>
+                    </ul>
+                    <p>On the course page (below the subjects) you'll also see:</p>
+                    <ul>
+                        <li><strong>My Attendance</strong> — your attendance % and a warning if you drop below the required minimum.</li>
+                        <li><strong>My Grades</strong> — each exam, oral presentation (with your teacher's feedback), quizzes, and your <strong>Overall</strong> score.</li>
+                        <li><strong>Course Feedback</strong> — rate the course, your teachers and the materials (private, and it helps us improve).</li>
+                    </ul>
+                </div></details>
+
+                <details><summary>🎥 Zoom Recordings</summary><div class="guide-body">
+                    <p>Recorded classes for your courses — search and play them any time.</p>
+                    <p>At the top, <strong>Live Class Links</strong> shows the Zoom links to <strong>join live classes</strong> — tap <strong>Open</strong> to join in a new tab, or <strong>Copy</strong> the link.</p>
+                </div></details>
+
+                <details><summary>📖 Booklets</summary><div class="guide-body">
+                    <p>Digital study booklets you can read in the portal.</p>
+                </div></details>
+
+                <details><summary>📝 Exams</summary><div class="guide-body">
+                    <p>Your assigned exams. Multiple-choice exams are taken here and graded instantly; some exams are papers your teacher grades. Results appear in <strong>My Grades</strong>.</p>
+                </div></details>
+
+                <details><summary>📅 Personal Meetings</summary><div class="guide-body">
+                    <p>Book a one-on-one meeting slot with the academy from the available times.</p>
+                </div></details>
+
+                <details><summary>🏛️ University Selection</summary><div class="guide-body">
+                    <p>Choose and track the universities you're applying to. The office can see your selections to advise you.</p>
+                </div></details>
+
+                <details><summary>💳 Program Tuition</summary><div class="guide-body">
+                    <p>Your tuition summary — total, payments received and any balance.</p>
+                </div></details>
+
+                <details><summary>💬 Help &amp; Support</summary><div class="guide-body">
+                    <p>Open a support ticket with the office. You'll get email updates when they reply or change its status.</p>
+                </div></details>
+
+                <details><summary>👤 Profile</summary><div class="guide-body">
+                    <p>Your account — change your password and upload a photo. Tap the avatar in the top-right on any page to change your picture.</p>
+                </div></details>
+
+                <details><summary>🔒 Content &amp; recording rules</summary><div class="guide-body">
+                    <p>All lectures, recordings and materials are the property of the Academy and are for your <strong>personal study only</strong>. Everything is <strong>watermarked and traced to your account</strong>, and <strong>recording, screen-capturing or sharing is not allowed</strong>. Videos pause if you switch away from the window.</p>
+                </div></details>
+            </div>`;
+        })();
+    </script>
+</body>
+</html>
