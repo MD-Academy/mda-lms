@@ -51,10 +51,11 @@
         function fmtDate(d){ return d ? new Date(d).toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short',year:'numeric'}) : ''; }
         const LOCK = '<span class="lock-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Not released yet</span>';
 
-        let STUDENT_UID = null, playedRec = null, RATE = null;
+        let STUDENT_UID = null, playedRec = null, RATE = null, WM_LABEL = '';
 
-        function openVideo(url, title){ document.getElementById('vid-title').textContent = title||'Recording'; const p=document.getElementById('vid-player'); p.src=url; document.getElementById('vid-overlay').classList.add('open'); p.play().catch(()=>{}); }
+        function openVideo(url, title){ document.getElementById('vid-title').textContent = title||'Recording'; const p=document.getElementById('vid-player'); p.src=url; document.getElementById('vid-overlay').classList.add('open'); p.play().catch(()=>{}); startVideoWatermark(WM_LABEL); }
         function closeVideo(){
+            stopVideoWatermark();
             const p=document.getElementById('vid-player'); p.pause(); p.removeAttribute('src'); p.load();
             document.getElementById('vid-overlay').classList.remove('open');
             if (playedRec) { const r = playedRec; playedRec = null; promptRate(r); }   // "rate at the end of the lesson"
@@ -113,6 +114,7 @@
             const auth = await requireStudent();
             if (!auth) return;
             STUDENT_UID = auth.session.user.id;
+            WM_LABEL = (auth.profile.full_name || 'Student') + ' · ' + (auth.session.user.email || '');
             renderLayout('recordings', 'Zoom Recordings', 'Class recordings for your courses', auth.profile);
             document.getElementById('page-content').innerHTML = `
                 <div class="section" id="live-section" style="display:none;margin-bottom:26px;">

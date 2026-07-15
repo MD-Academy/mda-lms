@@ -366,3 +366,42 @@ function _showDialog({ title, message, confirmText, cancelText, danger, oneButto
 
 function confirmDialog(opts = {}) { return _showDialog({ ...opts, oneButton: false }); }
 function alertDialog(opts = {}) { return _showDialog({ ...opts, oneButton: true }); }
+
+
+// ── ANTI-LEAK: personalised moving watermark on the video modal + pause on focus loss ──
+let _wmTimer = null, _wmBound = false;
+function startVideoWatermark(label) {
+    const box = document.querySelector('#vid-overlay .vid-box');
+    if (!box) return;
+    let wm = box.querySelector('.vid-wm');
+    if (!wm) { wm = document.createElement('div'); wm.className = 'vid-wm'; box.appendChild(wm); }
+    const stamp = () => {
+        wm.textContent = (label || 'Medical Doctor Academy') + ' · ' + new Date().toLocaleTimeString();
+        wm.style.top = (6 + Math.random() * 76) + '%';
+        wm.style.left = (4 + Math.random() * 58) + '%';
+    };
+    stamp();
+    clearInterval(_wmTimer); _wmTimer = setInterval(stamp, 3500);
+    if (!_wmBound) {
+        _wmBound = true;
+        document.addEventListener('visibilitychange', _wmDefocus);
+        window.addEventListener('blur', _wmDefocus);
+        window.addEventListener('focus', _wmRefocus);
+    }
+}
+function stopVideoWatermark() {
+    clearInterval(_wmTimer); _wmTimer = null;
+    const box = document.querySelector('#vid-overlay .vid-box');
+    if (box) box.classList.remove('vid-defocus');
+}
+function _wmDefocus() {
+    const ov = document.getElementById('vid-overlay');
+    if (!ov || !ov.classList.contains('open')) return;
+    if (document.hidden || !document.hasFocus()) {
+        const p = document.getElementById('vid-player'); if (p) p.pause();
+        const box = document.querySelector('#vid-overlay .vid-box'); if (box) box.classList.add('vid-defocus');
+    }
+}
+function _wmRefocus() {
+    const box = document.querySelector('#vid-overlay .vid-box'); if (box) box.classList.remove('vid-defocus');
+}

@@ -49,7 +49,48 @@ async function requireStudent() {
 
     _startStudentWatch(session.user.id);
     _startLoginTracking(session.user.id);
+    await _enforceContentPolicy(session);
     return { session, profile };
+}
+
+// One-time content-use agreement. Blocks until accepted; recorded per account.
+async function _enforceContentPolicy(session) {
+    if (sessionStorage.getItem('mda_policy_ok') === '1') return;
+    try {
+        const { data } = await db.from('policy_acceptances').select('student_id').eq('student_id', session.user.id).limit(1);
+        if (data && data.length) { sessionStorage.setItem('mda_policy_ok', '1'); return; }
+    } catch (e) { return; }   // if the table isn't there yet, don't block the portal
+
+    await new Promise(resolve => {
+        const ov = document.createElement('div');
+        ov.id = 'policy-overlay';
+        ov.style.cssText = 'position:fixed;inset:0;background:rgba(6,12,28,.78);display:flex;align-items:center;justify-content:center;z-index:99999;padding:20px;font-family:Inter,system-ui,sans-serif;';
+        ov.innerHTML = `<div style="background:#fff;border-radius:16px;max-width:520px;width:100%;padding:26px 26px 22px;box-shadow:0 20px 60px rgba(0,0,0,.4);">
+            <h2 style="margin:0 0 12px;font-size:20px;color:#0a1e3d;">Content use agreement</h2>
+            <p style="font-size:14px;line-height:1.6;color:#334155;margin:0 0 12px;">All lectures, recordings, presentations and materials in this portal are the property of Medical Doctor Academy and are provided for your <strong>personal study only</strong>.</p>
+            <ul style="font-size:13.5px;line-height:1.7;color:#334155;margin:0 0 14px;padding-left:18px;">
+                <li>Every page and video is <strong>watermarked and traced to your account</strong>.</li>
+                <li><strong>Recording, screen-capturing, downloading, copying or sharing</strong> any content is strictly prohibited.</li>
+                <li>Violations are grounds for <strong>removal from the programme</strong> and possible legal action.</li>
+            </ul>
+            <label style="display:flex;align-items:center;gap:9px;font-size:13.5px;color:#334155;margin-bottom:16px;cursor:pointer;"><input type="checkbox" id="policy-check" style="width:18px;height:18px;flex-shrink:0;"> I have read and agree to these terms.</label>
+            <button id="policy-agree" disabled style="width:100%;padding:12px;border:none;border-radius:10px;background:#9aa5b5;color:#fff;font-weight:700;font-size:14px;cursor:not-allowed;">Continue</button>
+        </div>`;
+        document.body.appendChild(ov);
+        const chk = ov.querySelector('#policy-check'), btn = ov.querySelector('#policy-agree');
+        chk.addEventListener('change', () => {
+            btn.disabled = !chk.checked;
+            btn.style.background = chk.checked ? 'linear-gradient(135deg,#1a4a8a,#b91c5c)' : '#9aa5b5';
+            btn.style.cursor = chk.checked ? 'pointer' : 'not-allowed';
+        });
+        btn.addEventListener('click', async () => {
+            btn.disabled = true; btn.textContent = 'Saving…';
+            try { await db.from('policy_acceptances').upsert({ student_id: session.user.id, version: 'v1', accepted_at: new Date().toISOString() }, { onConflict: 'student_id' }); } catch (e) { /* proceed anyway */ }
+            sessionStorage.setItem('mda_policy_ok', '1');
+            ov.remove();
+            resolve();
+        });
+    });
 }
 
 // Periodic check: kick a student who gets suspended/expired while logged in.
