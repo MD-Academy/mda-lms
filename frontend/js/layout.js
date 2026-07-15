@@ -368,20 +368,43 @@ function confirmDialog(opts = {}) { return _showDialog({ ...opts, oneButton: fal
 function alertDialog(opts = {}) { return _showDialog({ ...opts, oneButton: true }); }
 
 
-// ── ANTI-LEAK: personalised moving watermark on the video modal + pause on focus loss ──
-let _wmTimer = null, _wmBound = false;
+// ── ANTI-LEAK: corner watermark on the video modal (slow rotation) + pause on focus loss ──
+// Sequence: bottom-left → bottom-right → top-right → top-left (15 min each) → centre (4 min) → repeat.
+const WM_SEQ = [
+    { pos: 'bl', dur: 15 * 60000 },
+    { pos: 'br', dur: 15 * 60000 },
+    { pos: 'tr', dur: 15 * 60000 },
+    { pos: 'tl', dur: 15 * 60000 },
+    { pos: 'center', dur: 4 * 60000 }
+];
+let _wmTick = null, _wmMove = null, _wmStep = 0, _wmBound = false;
+
+function _wmPlace(wm, pos) {
+    wm.style.top = wm.style.left = wm.style.right = wm.style.bottom = 'auto';
+    wm.style.transform = 'none';
+    const m = '16px';
+    if (pos === 'bl') { wm.style.bottom = m; wm.style.left = m; }
+    else if (pos === 'br') { wm.style.bottom = m; wm.style.right = m; }
+    else if (pos === 'tr') { wm.style.top = m; wm.style.right = m; }
+    else if (pos === 'tl') { wm.style.top = m; wm.style.left = m; }
+    else { wm.style.top = '50%'; wm.style.left = '50%'; wm.style.transform = 'translate(-50%,-50%)'; }
+}
+
 function startVideoWatermark(label) {
     const box = document.querySelector('#vid-overlay .vid-box');
     if (!box) return;
     let wm = box.querySelector('.vid-wm');
     if (!wm) { wm = document.createElement('div'); wm.className = 'vid-wm'; box.appendChild(wm); }
-    const stamp = () => {
-        wm.textContent = (label || 'Medical Doctor Academy') + ' · ' + new Date().toLocaleTimeString();
-        wm.style.top = (6 + Math.random() * 76) + '%';
-        wm.style.left = (4 + Math.random() * 58) + '%';
+    const stamp = () => { wm.textContent = (label || 'Medical Doctor Academy') + ' · ' + new Date().toLocaleTimeString(); };
+    _wmStep = 0;
+    const run = () => {
+        const step = WM_SEQ[_wmStep % WM_SEQ.length];
+        _wmPlace(wm, step.pos);
+        stamp();
+        _wmMove = setTimeout(() => { _wmStep++; run(); }, step.dur);
     };
-    stamp();
-    clearInterval(_wmTimer); _wmTimer = setInterval(stamp, 3500);
+    clearTimeout(_wmMove); run();
+    clearInterval(_wmTick); _wmTick = setInterval(stamp, 60000);   // keep the time fresh without moving
     if (!_wmBound) {
         _wmBound = true;
         document.addEventListener('visibilitychange', _wmDefocus);
@@ -390,7 +413,8 @@ function startVideoWatermark(label) {
     }
 }
 function stopVideoWatermark() {
-    clearInterval(_wmTimer); _wmTimer = null;
+    clearTimeout(_wmMove); _wmMove = null;
+    clearInterval(_wmTick); _wmTick = null;
     const box = document.querySelector('#vid-overlay .vid-box');
     if (box) box.classList.remove('vid-defocus');
 }
