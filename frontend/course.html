@@ -131,15 +131,19 @@
             const { data: marks } = await db.from('attendance').select('session_id, present').in('session_id', sesIds);
             const mp = {}; (marks || []).forEach(m => { mp[m.session_id] = m.present; });
 
+            // Office-set minimum attendance (default 80%).
+            let attMin = 80;
+            try { const { data: gs } = await db.from('app_settings').select('value').eq('key', 'attendance_min').limit(1); if (gs && gs[0] && gs[0].value != null) attMin = Number(gs[0].value) || 80; } catch (e) {}
+
             let attended = 0;
             const dayRows = sessions.map(s => {
                 const ok = mp[s.id] === true; if (ok) attended++;
                 return `<div class="att-day"><span class="d">${fmtDay(s.session_date)}</span><span class="att-badge ${ok ? 'ok' : 'no'}">${ok ? '✓ Present' : '✗ Absent'}</span></div>`;
             }).join('');
             const pct = Math.round(attended / sessions.length * 100);
-            const color = pct >= 100 ? 'att-green' : (pct >= 75 ? 'att-amber' : 'att-red');
-            const warn = pct < 75
-                ? `<div class="att-warn">⚠️ You've missed a high number of classes (${attended} of ${sessions.length} attended). Please contact your teacher to remediate your missing lessons.</div>`
+            const color = pct >= attMin ? 'att-green' : (pct >= attMin - 10 ? 'att-amber' : 'att-red');
+            const warn = pct < attMin
+                ? `<div class="att-warn">⚠️ Your attendance is ${pct}% — below the required ${attMin}% (${attended} of ${sessions.length} classes attended). Please attend your upcoming classes and contact the office if you need to discuss missed sessions.</div>`
                 : '';
             box.innerHTML = `
                 <div class="section">

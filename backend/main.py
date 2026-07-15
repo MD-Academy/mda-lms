@@ -604,6 +604,55 @@ def _run_daily_reminders():
                 new_logs.append({"user_id": sid, "type": "expiry_7", "ref_date": exp})
                 sent_keys.add((sid, "expiry_7", exp))
 
+    # ── Low attendance (weekly, deduped to once per calendar week) ──
+    attendance_sent = 0
+    try:
+        amin_row = supabase.table("app_settings").select("value").eq("key", "attendance_min").limit(1).execute().data
+        attendance_min = float(amin_row[0]["value"]) if (amin_row and amin_row[0].get("value")) else 80.0
+    except Exception:
+        attendance_min = 80.0
+    week_start = (today - timedelta(days=today.weekday())).isoformat()   # Monday of this week
+    try:
+        enrolls = supabase.table("course_enrollments").select("student_id, course_id").execute().data or []
+        sessions_all = supabase.table("class_sessions").select("id, course_id").execute().data or []
+        session_course = {se["id"]: se["course_id"] for se in sessions_all}
+        sessions_by_course = {}
+        for se in sessions_all:
+            sessions_by_course.setdefault(se["course_id"], []).append(se["id"])
+        att_all = supabase.table("attendance").select("session_id, student_id, present").execute().data or []
+        present_ct = {}
+        for a in att_all:
+            if not a.get("present"):
+                continue
+            cid = session_course.get(a["session_id"])
+            if cid:
+                present_ct[(a["student_id"], cid)] = present_ct.get((a["student_id"], cid), 0) + 1
+        course_names = {c["id"]: c["name"] for c in (supabase.table("courses").select("id, name").execute().data or [])}
+        enroll_by_student = {}
+        for e in enrolls:
+            enroll_by_student.setdefault(e["student_id"], set()).add(e["course_id"])
+
+        for s in students:
+            sid, email, name = s["id"], s["email"], s.get("full_name")
+            if (sid, "attendance_low", week_start) in sent_keys:
+                continue
+            low = []
+            for cid in enroll_by_student.get(sid, ()):
+                total = len(sessions_by_course.get(cid, []))
+                if total == 0:
+                    continue
+                pct = round(present_ct.get((sid, cid), 0) / total * 100)
+                if pct < attendance_min:
+                    low.append((course_names.get(cid, "your course"), pct))
+            if low:
+                subject, html = emails.attendance_low_email(name, email, low, attendance_min)
+                if emails.send_email(email, subject, html):
+                    attendance_sent += 1
+                new_logs.append({"user_id": sid, "type": "attendance_low", "ref_date": week_start})
+                sent_keys.add((sid, "attendance_low", week_start))
+    except Exception as e:
+        logger.error("Attendance reminders failed: %s", e)
+
     if new_logs:
         try:
             supabase.table("email_log").insert(new_logs).execute()
@@ -611,7 +660,8 @@ def _run_daily_reminders():
             logger.error("Failed to record email_log: %s", e)
 
     return {"success": True, "candidates": len(students),
-            "inactivity_sent": inactivity_sent, "expiry_sent": expiry_sent}
+            "inactivity_sent": inactivity_sent, "expiry_sent": expiry_sent,
+            "attendance_sent": attendance_sent}
 
 
 @app.post("/cron/daily-emails")
