@@ -173,22 +173,37 @@
                 .order('order_index', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true });
             const orals = oralsData || [];
 
-            if (exams.length === 0 && orals.length === 0) { box.innerHTML = ''; return; }
+            // Global grade settings + this course's quizzes (all-or-nothing slice).
+            const { data: gs } = await db.from('app_settings').select('key, value').in('key', ['grade_quizzes_weight', 'grade_bonus_cap']);
+            let quizWeight = 10, bonusCap = 10;
+            (gs || []).forEach(r => { if (r.key === 'grade_quizzes_weight') quizWeight = Number(r.value) || 0; if (r.key === 'grade_bonus_cap') bonusCap = Number(r.value) || 0; });
 
-            const [atR, ogR, adjR] = await Promise.all([
+            const { data: csRows } = await db.from('course_subjects').select('room_id').eq('course_id', courseId);
+            const roomIds = [...new Set((csRows || []).map(r => r.room_id))];
+            let courseQuizIds = [];
+            if (roomIds.length) { const { data: qz } = await db.from('quizzes').select('id').in('room_id', roomIds).eq('is_visible', true); courseQuizIds = (qz || []).map(q => q.id); }
+            const hasQuizzes = courseQuizIds.length > 0 && quizWeight > 0;
+
+            if (exams.length === 0 && orals.length === 0 && !hasQuizzes) { box.innerHTML = ''; return; }
+
+            const [atR, ogR, adjR, qaR] = await Promise.all([
                 examIds.length ? db.from('exam_attempts').select('exam_id, score').in('exam_id', examIds) : Promise.resolve({ data: [] }),
                 orals.length ? db.from('oral_grades').select('oral_presentation_id, score, feedback') : Promise.resolve({ data: [] }),
-                db.from('course_grade_adjustments').select('adjustment, note').eq('course_id', courseId)
+                db.from('course_grade_adjustments').select('adjustment, note').eq('course_id', courseId),
+                hasQuizzes ? db.from('quiz_attempts').select('quiz_id').eq('passed', true).in('quiz_id', courseQuizIds) : Promise.resolve({ data: [] })
             ]);
             const attemptBy = {}; (atR.data || []).forEach(a => { attemptBy[a.exam_id] = a; });
             const oralBy = {}; (ogR.data || []).forEach(g => { oralBy[g.oral_presentation_id] = g; });
             const adj = (adjR.data || [])[0] || null;
-            const adjVal = adj ? Number(adj.adjustment || 0) : 0;
+            const adjVal = adj ? Math.max(-bonusCap, Math.min(bonusCap, Number(adj.adjustment || 0))) : 0;
+            const passedSet = new Set((qaR.data || []).map(a => a.quiz_id));
+            const quizzesPassedAll = hasQuizzes && courseQuizIds.every(qid => passedSet.has(qid));
 
             let earned = 0, wsum = 0, graded = 0;
-            const total = exams.length + orals.length;
+            const total = exams.length + orals.length + (hasQuizzes ? 1 : 0);
             exams.forEach(e => { const a = attemptBy[e.id]; if (a && a.score != null) { earned += Number(a.score) * Number(e.weight_percent || 0); wsum += Number(e.weight_percent || 0); graded++; } });
             orals.forEach(o => { const g = oralBy[o.id]; if (g && g.score != null) { earned += Number(g.score) * Number(o.weight_percent || 0); wsum += Number(o.weight_percent || 0); graded++; } });
+            if (hasQuizzes && quizzesPassedAll) { earned += 100 * quizWeight; wsum += quizWeight; graded++; }
             const net = wsum > 0 ? earned / wsum : null;
             const overall = net != null ? Math.max(0, Math.min(100, net + adjVal)) : null;
 
@@ -201,7 +216,8 @@
                 </div>`;
             const rowsHtml = [
                 ...exams.map(e => { const a = attemptBy[e.id]; const sc = (a && a.score != null) ? Math.round(a.score) + '%' : pendPill; return row('📝', esc(e.title), 'Written exam · ' + Number(e.weight_percent) + '%', sc, ''); }),
-                ...orals.map(o => { const g = oralBy[o.id]; const sc = (g && g.score != null) ? Math.round(g.score) + '%' : pendPill; const fb = (g && g.feedback) ? `<div style="flex-basis:100%;margin-top:8px;font-size:13px;color:var(--text);background:var(--bg);border-left:3px solid var(--blue-400);padding:9px 11px;border-radius:6px;line-height:1.55;"><strong style="color:var(--navy-800);">Feedback:</strong> ${esc(g.feedback)}</div>` : ''; return row('🎤', esc(o.title), 'Oral presentation · ' + Number(o.weight_percent) + '%', sc, fb); })
+                ...orals.map(o => { const g = oralBy[o.id]; const sc = (g && g.score != null) ? Math.round(g.score) + '%' : pendPill; const fb = (g && g.feedback) ? `<div style="flex-basis:100%;margin-top:8px;font-size:13px;color:var(--text);background:var(--bg);border-left:3px solid var(--blue-400);padding:9px 11px;border-radius:6px;line-height:1.55;"><strong style="color:var(--navy-800);">Feedback:</strong> ${esc(g.feedback)}</div>` : ''; return row('🎤', esc(o.title), 'Oral presentation · ' + Number(o.weight_percent) + '%', sc, fb); }),
+                ...(hasQuizzes ? [ row('✅', 'Quizzes', 'Pass all quizzes · ' + quizWeight + '%', quizzesPassedAll ? '<span style="color:var(--green);">Passed ✓</span>' : '<span style="color:var(--text-muted);font-weight:600;">Pending — pass all quizzes</span>', '') ] : [])
             ].join('');
 
             const color = overall == null ? '' : (overall >= 60 ? 'att-green' : (overall >= 50 ? 'att-amber' : 'att-red'));
