@@ -62,10 +62,10 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
     background: var(--card); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between;
     border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 40;
 }
-/* Thin blue→gold accent strip along the BOTTOM — student cue (admin's is on top). */
+/* Thin blue→crimson→white accent strip along the BOTTOM — student cue (admin's is on top). */
 .topbar::after {
     content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
-    background: linear-gradient(90deg, var(--blue-500), var(--gold));
+    background: linear-gradient(90deg, var(--blue-500) 0%, var(--crimson) 55%, #ffffff 90%);
 }
 .topbar h1 { font-size: 22px; font-weight: 800; color: var(--navy-800); }
 .topbar .page-sub { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
