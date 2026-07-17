@@ -194,13 +194,13 @@
                 examIds.length ? db.from('exam_attempts').select('exam_id, score').in('exam_id', examIds) : Promise.resolve({ data: [] }),
                 orals.length ? db.from('oral_grades').select('oral_presentation_id, score, feedback') : Promise.resolve({ data: [] }),
                 db.from('course_grade_adjustments').select('adjustment, note').eq('course_id', courseId),
-                hasQuizzes ? db.from('quiz_attempts').select('quiz_id').eq('passed', true).in('quiz_id', courseQuizIds) : Promise.resolve({ data: [] })
+                hasQuizzes ? db.from('quiz_attempts').select('quiz_id, score').in('quiz_id', courseQuizIds) : Promise.resolve({ data: [] })
             ]);
             const attemptBy = {}; (atR.data || []).forEach(a => { attemptBy[a.exam_id] = a; });
             const oralBy = {}; (ogR.data || []).forEach(g => { oralBy[g.oral_presentation_id] = g; });
             const adj = (adjR.data || [])[0] || null;
             const adjVal = adj ? Math.max(-bonusCap, Math.min(bonusCap, Number(adj.adjustment || 0))) : 0;
-            const passedSet = new Set((qaR.data || []).map(a => a.quiz_id));
+            const passedSet = new Set((qaR.data || []).filter(a => a.score != null && Number(a.score) >= 100).map(a => a.quiz_id));
             const quizzesPassedAll = hasQuizzes && courseQuizIds.every(qid => passedSet.has(qid));
 
             let earned = 0, wsum = 0, graded = 0;

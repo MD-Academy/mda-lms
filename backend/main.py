@@ -726,8 +726,8 @@ def _run_daily_reminders(force=False):
             if qs:
                 quizzes_by_course[cid2] = qs
         passed_by = {}
-        for a in (supabase.table("quiz_attempts").select("quiz_id, student_id, passed").execute().data or []):
-            if a.get("passed"):
+        for a in (supabase.table("quiz_attempts").select("quiz_id, student_id, score").execute().data or []):
+            if a.get("score") is not None and float(a["score"]) >= 100:   # passed a quiz = all correct (100%)
                 passed_by.setdefault(a["student_id"], set()).add(a["quiz_id"])
 
         for s in students_active:
