@@ -551,12 +551,14 @@ def _run_daily_reminders(force=False):
     today = date.today()
     today_iso = today.isoformat()
 
-    students = (supabase.table("profiles")
+    students_active = (supabase.table("profiles")
                 .select("id, full_name, email, status, expiry_date, created_at")
                 .eq("role", "student").eq("status", "active").execute().data or [])
-    # Suppress expired accounts entirely.
-    students = [s for s in students
-                if s.get("email") and not (s.get("expiry_date") and s["expiry_date"] < today_iso)]
+    students_active = [s for s in students_active if s.get("email")]
+    # Inactivity/expiry nudges skip accounts already past expiry; attendance/grade
+    # warnings (below) use students_active so end-of-term students still get warned + recorded.
+    students = [s for s in students_active
+                if not (s.get("expiry_date") and s["expiry_date"] < today_iso)]
     sid_set = {s["id"] for s in students}
 
     # Last activity per student (most recent login session).
@@ -635,7 +637,7 @@ def _run_daily_reminders(force=False):
         for e in enrolls:
             enroll_by_student.setdefault(e["student_id"], set()).add(e["course_id"])
 
-        for s in students:
+        for s in students_active:
             sid, email, name = s["id"], s["email"], s.get("full_name")
             if not force and (sid, "attendance_low", week_start) in sent_keys:
                 continue
@@ -727,7 +729,7 @@ def _run_daily_reminders(force=False):
             if a.get("passed"):
                 passed_by.setdefault(a["student_id"], set()).add(a["quiz_id"])
 
-        for s in students:
+        for s in students_active:
             sid, email, name = s["id"], s["email"], s.get("full_name")
             if not force and (sid, "grade_low", week_start) in sent_keys:
                 continue
