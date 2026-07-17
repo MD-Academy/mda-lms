@@ -544,8 +544,10 @@ def _purge_old_schedule():
         return 0
 
 
-def _run_daily_reminders():
-    """Inactivity (7/15/30d) + one-time expiry (<=7d) reminders. Idempotent via email_log."""
+def _run_daily_reminders(force=False):
+    """Inactivity (7/15/30d) + one-time expiry (<=7d) + weekly attendance/grade warnings.
+    Idempotent via email_log. force=True re-processes attendance/grade warnings even if
+    already sent this week (used by the manual 'Run warnings now' trigger)."""
     today = date.today()
     today_iso = today.isoformat()
 
@@ -635,7 +637,7 @@ def _run_daily_reminders():
 
         for s in students:
             sid, email, name = s["id"], s["email"], s.get("full_name")
-            if (sid, "attendance_low", week_start) in sent_keys:
+            if not force and (sid, "attendance_low", week_start) in sent_keys:
                 continue
             low = []   # (course_id, course_name, pct, present, total)
             for cid in enroll_by_student.get(sid, ()):
@@ -727,7 +729,7 @@ def _run_daily_reminders():
 
         for s in students:
             sid, email, name = s["id"], s["email"], s.get("full_name")
-            if (sid, "grade_low", week_start) in sent_keys:
+            if not force and (sid, "grade_low", week_start) in sent_keys:
                 continue
             low_g = []
             for cid in enroll_by_student_g.get(sid, ()):
@@ -782,6 +784,17 @@ def _run_daily_reminders():
     return {"success": True, "candidates": len(students),
             "inactivity_sent": inactivity_sent, "expiry_sent": expiry_sent,
             "attendance_sent": attendance_sent, "grade_sent": grade_sent}
+
+
+class RunRemindersReq(BaseModel):
+    force: Optional[bool] = False
+
+
+@app.post("/admin/run-reminders")
+def admin_run_reminders(body: RunRemindersReq, _=Depends(get_superadmin_user)):
+    """Manual 'Run warnings now' — runs the daily reminders/warnings immediately.
+    force=True re-processes attendance/grade warnings even if already sent this week."""
+    return _run_daily_reminders(force=bool(body.force))
 
 
 @app.post("/cron/daily-emails")
