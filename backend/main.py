@@ -771,10 +771,14 @@ def _run_daily_reminders(force=False):
     except Exception as e:
         logger.error("Grade reminders failed: %s", e)
 
+    warnings_recorded = 0
+    warnings_error = None
     if warning_rows:
         try:
             supabase.table("student_warnings").insert(warning_rows).execute()
+            warnings_recorded = len(warning_rows)
         except Exception as e:
+            warnings_error = str(e)
             logger.error("Failed to record student_warnings: %s", e)
 
     if new_logs:
@@ -783,9 +787,11 @@ def _run_daily_reminders(force=False):
         except Exception as e:
             logger.error("Failed to record email_log: %s", e)
 
-    return {"success": True, "candidates": len(students),
+    return {"success": True, "candidates": len(students), "active_students": len(students_active),
             "inactivity_sent": inactivity_sent, "expiry_sent": expiry_sent,
-            "attendance_sent": attendance_sent, "grade_sent": grade_sent}
+            "attendance_sent": attendance_sent, "grade_sent": grade_sent,
+            "warnings_built": len(warning_rows), "warnings_recorded": warnings_recorded,
+            "warnings_error": warnings_error}
 
 
 class RunRemindersReq(BaseModel):
