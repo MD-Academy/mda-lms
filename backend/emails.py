@@ -264,6 +264,26 @@ def attendance_low_email(full_name: str, email: str, low_courses: list, threshol
     return ("Attendance reminder — please attend your classes", _wrap("📅 Attendance reminder", body))
 
 
+def grade_low_email(full_name: str, email: str, low_courses: list, threshold):
+    """Returns (subject, html). low_courses = [(course_name, overall_pct), ...]."""
+    rows = "".join(
+        f'<li style="margin:4px 0;"><strong>{_esc(name)}</strong> — current overall {pct}%</li>'
+        for name, pct in low_courses
+    )
+    body = f"""\
+      {_greeting(full_name)}
+      <p style="margin:0 0 12px;font-size:15px;line-height:1.6;">
+        This is an important reminder that your current overall grade is below the required
+        <strong>{int(threshold)}%</strong>:</p>
+      <ul style="margin:0 0 16px;padding-left:20px;font-size:15px;line-height:1.7;color:#334155;">{rows}</ul>
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">
+        Please review your results in the portal, focus on upcoming exams and presentations,
+        and contact the office if you'd like support. Acting now can still turn this around.</p>
+      {_button("Open your portal", STUDENT_URL)}
+      {_login_help(email)}"""
+    return ("Grade reminder — your overall grade is below the required minimum", _wrap("📉 Grade reminder", body))
+
+
 def expiry_email(full_name: str, email: str, expiry_date: str, days_left: int):
     """Returns (subject, html) for the one-time 'expires in ~7 days' reminder."""
     when = "today" if days_left == 0 else (f"in {days_left} day" + ("" if days_left == 1 else "s"))

@@ -178,9 +178,9 @@
             const orals = oralsData || [];
 
             // Global grade settings + this course's quizzes (all-or-nothing slice).
-            const { data: gs } = await db.from('app_settings').select('key, value').in('key', ['grade_quizzes_weight', 'grade_bonus_cap']);
-            let quizWeight = 10, bonusCap = 10;
-            (gs || []).forEach(r => { if (r.key === 'grade_quizzes_weight') quizWeight = Number(r.value) || 0; if (r.key === 'grade_bonus_cap') bonusCap = Number(r.value) || 0; });
+            const { data: gs } = await db.from('app_settings').select('key, value').in('key', ['grade_quizzes_weight', 'grade_bonus_cap', 'grade_pass_min']);
+            let quizWeight = 10, bonusCap = 10, passMin = 60;
+            (gs || []).forEach(r => { if (r.key === 'grade_quizzes_weight') quizWeight = Number(r.value) || 0; if (r.key === 'grade_bonus_cap') bonusCap = Number(r.value) || 0; if (r.key === 'grade_pass_min') passMin = Number(r.value) || 0; });
 
             const { data: csRows } = await db.from('course_subjects').select('room_id').eq('course_id', courseId);
             const roomIds = [...new Set((csRows || []).map(r => r.room_id))];
@@ -228,6 +228,9 @@
             const adjLine = (adj && adjVal !== 0)
                 ? `<div class="att-warn" style="background:#eff5ff;color:#1e3a5f;border-color:#bfdbfe;">Teacher adjustment: <strong>${adjVal > 0 ? '+' + adjVal : adjVal}</strong>${adj.note ? ' · ' + esc(adj.note) : ''}</div>`
                 : '';
+            const gradeWarn = (overall != null && overall < passMin)
+                ? `<div class="att-warn">⚠️ Your overall grade is ${Math.round(overall)}% — below the required ${passMin}%. Please focus on your upcoming exams and presentations, and contact the office if you'd like support.</div>`
+                : '';
             box.innerHTML = `
                 <div class="section">
                     <div class="section-title">🎓 My Grades</div>
@@ -236,6 +239,7 @@
                             <div class="att-big ${color}">${overall != null ? Math.round(overall) + '%' : '—'}</div>
                             <div class="att-sub">${net != null ? 'Overall score · ' + graded + ' of ' + total + ' items graded' : 'No grades entered yet'}</div>
                         </div>
+                        ${gradeWarn}
                         ${adjLine}
                         <div class="att-list">${rowsHtml}</div>
                         <p style="font-size:12px;color:var(--text-muted);margin-top:12px;line-height:1.5;">Your overall score is a weighted average of the items graded so far, plus any teacher adjustment. It updates as more exams and presentations are graded.</p>

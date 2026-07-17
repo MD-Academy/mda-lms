@@ -574,6 +574,7 @@ def _run_daily_reminders():
     inactivity_sent = 0
     expiry_sent = 0
     new_logs = []
+    warning_rows = []   # permanent audit records for the admin (student_warnings)
 
     for s in students:
         sid, email, name = s["id"], s["email"], s.get("full_name")
@@ -636,22 +637,141 @@ def _run_daily_reminders():
             sid, email, name = s["id"], s["email"], s.get("full_name")
             if (sid, "attendance_low", week_start) in sent_keys:
                 continue
-            low = []
+            low = []   # (course_id, course_name, pct, present, total)
             for cid in enroll_by_student.get(sid, ()):
                 total = len(sessions_by_course.get(cid, []))
                 if total == 0:
                     continue
-                pct = round(present_ct.get((sid, cid), 0) / total * 100)
+                present = present_ct.get((sid, cid), 0)
+                pct = round(present / total * 100)
                 if pct < attendance_min:
-                    low.append((course_names.get(cid, "your course"), pct))
+                    low.append((cid, course_names.get(cid, "your course"), pct, present, total))
             if low:
-                subject, html = emails.attendance_low_email(name, email, low, attendance_min)
-                if emails.send_email(email, subject, html):
+                subject, html = emails.attendance_low_email(name, email, [(cn, pc) for (_, cn, pc, _, _) in low], attendance_min)
+                ok = emails.send_email(email, subject, html)
+                if ok:
                     attendance_sent += 1
+                for (cid, cn, pc, present, total) in low:
+                    warning_rows.append({
+                        "student_id": sid, "student_name": name, "type": "attendance_low",
+                        "course_id": cid, "course_name": cn,
+                        "detail": f"Attendance {pc}% ({present} of {total} classes) — below the required {int(attendance_min)}%",
+                        "channel": "email", "email_to": email, "subject": subject, "delivered": bool(ok),
+                    })
                 new_logs.append({"user_id": sid, "type": "attendance_low", "ref_date": week_start})
                 sent_keys.add((sid, "attendance_low", week_start))
     except Exception as e:
         logger.error("Attendance reminders failed: %s", e)
+
+    # ── Low overall grade (weekly, deduped) ──
+    grade_sent = 0
+    try:
+        gs_rows = supabase.table("app_settings").select("key, value").in_("key", ["grade_pass_min", "grade_quizzes_weight", "grade_bonus_cap"]).execute().data or []
+        gsd = {r["key"]: r["value"] for r in gs_rows}
+        grade_pass_min = float(gsd.get("grade_pass_min") or 60)
+        quiz_weight = float(gsd.get("grade_quizzes_weight") or 10)
+        bonus_cap = float(gsd.get("grade_bonus_cap") or 10)
+
+        enrolls_g = supabase.table("course_enrollments").select("student_id, course_id").execute().data or []
+        enroll_by_student_g = {}
+        for e in enrolls_g:
+            enroll_by_student_g.setdefault(e["student_id"], set()).add(e["course_id"])
+        cnames = {c["id"]: c["name"] for c in (supabase.table("courses").select("id, name").execute().data or [])}
+
+        ec = supabase.table("exam_courses").select("exam_id, course_id").execute().data or []
+        exam_ids = list({r["exam_id"] for r in ec})
+        exams_by_id = {}
+        if exam_ids:
+            for ex in (supabase.table("exams").select("id, weight_percent, is_visible").in_("id", exam_ids).execute().data or []):
+                exams_by_id[ex["id"]] = ex
+        exams_by_course = {}
+        for r in ec:
+            ex = exams_by_id.get(r["exam_id"])
+            if ex and ex.get("is_visible", True):
+                exams_by_course.setdefault(r["course_id"], []).append((r["exam_id"], float(ex.get("weight_percent") or 0)))
+        exam_score = {}
+        for a in (supabase.table("exam_attempts").select("exam_id, student_id, score").execute().data or []):
+            if a.get("score") is not None:
+                exam_score[(a["student_id"], a["exam_id"])] = float(a["score"])
+
+        orals_by_course = {}
+        for o in (supabase.table("oral_presentations").select("id, course_id, weight_percent").execute().data or []):
+            orals_by_course.setdefault(o["course_id"], []).append((o["id"], float(o.get("weight_percent") or 0)))
+        oral_score = {}
+        for g in (supabase.table("oral_grades").select("oral_presentation_id, student_id, score").execute().data or []):
+            if g.get("score") is not None:
+                oral_score[(g["student_id"], g["oral_presentation_id"])] = float(g["score"])
+
+        adj_by = {(r["course_id"], r["student_id"]): float(r.get("adjustment") or 0)
+                  for r in (supabase.table("course_grade_adjustments").select("course_id, student_id, adjustment").execute().data or [])}
+
+        cs_rows = supabase.table("course_subjects").select("course_id, room_id").execute().data or []
+        rooms_by_course = {}
+        for r in cs_rows:
+            rooms_by_course.setdefault(r["course_id"], []).append(r["room_id"])
+        all_room_ids = list({r["room_id"] for r in cs_rows})
+        quizzes_by_room = {}
+        if all_room_ids:
+            for q in (supabase.table("quizzes").select("id, room_id, is_visible").in_("room_id", all_room_ids).execute().data or []):
+                if q.get("is_visible", True):
+                    quizzes_by_room.setdefault(q["room_id"], []).append(q["id"])
+        quizzes_by_course = {}
+        for cid2, rids in rooms_by_course.items():
+            qs = [qid for rid in rids for qid in quizzes_by_room.get(rid, [])]
+            if qs:
+                quizzes_by_course[cid2] = qs
+        passed_by = {}
+        for a in (supabase.table("quiz_attempts").select("quiz_id, student_id, passed").execute().data or []):
+            if a.get("passed"):
+                passed_by.setdefault(a["student_id"], set()).add(a["quiz_id"])
+
+        for s in students:
+            sid, email, name = s["id"], s["email"], s.get("full_name")
+            if (sid, "grade_low", week_start) in sent_keys:
+                continue
+            low_g = []
+            for cid in enroll_by_student_g.get(sid, ()):
+                earned = 0.0; wsum = 0.0
+                for (exid, w) in exams_by_course.get(cid, []):
+                    sc = exam_score.get((sid, exid))
+                    if sc is not None:
+                        earned += sc * w; wsum += w
+                for (oid, w) in orals_by_course.get(cid, []):
+                    sc = oral_score.get((sid, oid))
+                    if sc is not None:
+                        earned += sc * w; wsum += w
+                cq = quizzes_by_course.get(cid, [])
+                if cq and quiz_weight > 0 and all(q in passed_by.get(sid, set()) for q in cq):
+                    earned += 100 * quiz_weight; wsum += quiz_weight
+                if wsum <= 0:
+                    continue
+                net = earned / wsum
+                a = max(-bonus_cap, min(bonus_cap, adj_by.get((cid, sid), 0.0)))
+                overall = max(0.0, min(100.0, net + a))
+                if overall < grade_pass_min:
+                    low_g.append((cid, cnames.get(cid, "your course"), round(overall)))
+            if low_g:
+                subject, html = emails.grade_low_email(name, email, [(cn, pc) for (_, cn, pc) in low_g], grade_pass_min)
+                ok = emails.send_email(email, subject, html)
+                if ok:
+                    grade_sent += 1
+                for (cid, cn, pc) in low_g:
+                    warning_rows.append({
+                        "student_id": sid, "student_name": name, "type": "grade_low",
+                        "course_id": cid, "course_name": cn,
+                        "detail": f"Overall grade {pc}% — below the required {int(grade_pass_min)}%",
+                        "channel": "email", "email_to": email, "subject": subject, "delivered": bool(ok),
+                    })
+                new_logs.append({"user_id": sid, "type": "grade_low", "ref_date": week_start})
+                sent_keys.add((sid, "grade_low", week_start))
+    except Exception as e:
+        logger.error("Grade reminders failed: %s", e)
+
+    if warning_rows:
+        try:
+            supabase.table("student_warnings").insert(warning_rows).execute()
+        except Exception as e:
+            logger.error("Failed to record student_warnings: %s", e)
 
     if new_logs:
         try:
@@ -661,7 +781,7 @@ def _run_daily_reminders():
 
     return {"success": True, "candidates": len(students),
             "inactivity_sent": inactivity_sent, "expiry_sent": expiry_sent,
-            "attendance_sent": attendance_sent}
+            "attendance_sent": attendance_sent, "grade_sent": grade_sent}
 
 
 @app.post("/cron/daily-emails")
