@@ -639,8 +639,6 @@ def _run_daily_reminders(force=False):
 
         for s in students_active:
             sid, email, name = s["id"], s["email"], s.get("full_name")
-            if not force and (sid, "attendance_low", week_start) in sent_keys:
-                continue
             low = []   # (course_id, course_name, pct, present, total)
             for cid in enroll_by_student.get(sid, ()):
                 total = len(sessions_by_course.get(cid, []))
@@ -651,18 +649,25 @@ def _run_daily_reminders(force=False):
                 if pct < attendance_min:
                     low.append((cid, course_names.get(cid, "your course"), pct, present, total))
             if low:
-                subject, html = emails.attendance_low_email(name, email, [(cn, pc) for (_, cn, pc, _, _) in low], attendance_min)
-                ok = emails.send_email(email, subject, html)
-                if ok:
-                    attendance_sent += 1
+                # Email at most once per week (email_log); build the audit record every time
+                # (the insert de-dups per week, so records self-heal without ever duplicating).
+                subject = "Attendance reminder — please attend your classes"
+                already = (sid, "attendance_low", week_start) in sent_keys
+                delivered = already
+                if not already:
+                    subject, html = emails.attendance_low_email(name, email, [(cn, pc) for (_, cn, pc, _, _) in low], attendance_min)
+                    delivered = emails.send_email(email, subject, html)
+                    if delivered:
+                        attendance_sent += 1
+                    new_logs.append({"user_id": sid, "type": "attendance_low", "ref_date": week_start})
+                    sent_keys.add((sid, "attendance_low", week_start))
                 for (cid, cn, pc, present, total) in low:
                     warning_rows.append({
                         "student_id": sid, "student_name": name, "type": "attendance_low",
                         "course_id": cid, "course_name": cn,
                         "detail": f"Attendance {pc}% ({present} of {total} classes) — below the required {int(attendance_min)}%",
-                        "channel": "email", "email_to": email, "subject": subject, "delivered": bool(ok),
+                        "channel": "email", "email_to": email, "subject": subject, "delivered": bool(delivered),
                     })
-                new_logs.append({"user_id": sid, "type": "attendance_low", "ref_date": week_start})
                 sent_keys.add((sid, "attendance_low", week_start))
     except Exception as e:
         logger.error("Attendance reminders failed: %s", e)
@@ -732,8 +737,6 @@ def _run_daily_reminders(force=False):
 
         for s in students_active:
             sid, email, name = s["id"], s["email"], s.get("full_name")
-            if not force and (sid, "grade_low", week_start) in sent_keys:
-                continue
             low_g = []
             for cid in enroll_by_student_g.get(sid, ()):
                 earned = 0.0; wsum = 0.0
@@ -756,19 +759,23 @@ def _run_daily_reminders(force=False):
                 if overall < grade_pass_min:
                     low_g.append((cid, cnames.get(cid, "your course"), round(overall)))
             if low_g:
-                subject, html = emails.grade_low_email(name, email, [(cn, pc) for (_, cn, pc) in low_g], grade_pass_min)
-                ok = emails.send_email(email, subject, html)
-                if ok:
-                    grade_sent += 1
+                subject = "Grade reminder — your overall grade is below the required minimum"
+                already = (sid, "grade_low", week_start) in sent_keys
+                delivered = already
+                if not already:
+                    subject, html = emails.grade_low_email(name, email, [(cn, pc) for (_, cn, pc) in low_g], grade_pass_min)
+                    delivered = emails.send_email(email, subject, html)
+                    if delivered:
+                        grade_sent += 1
+                    new_logs.append({"user_id": sid, "type": "grade_low", "ref_date": week_start})
+                    sent_keys.add((sid, "grade_low", week_start))
                 for (cid, cn, pc) in low_g:
                     warning_rows.append({
                         "student_id": sid, "student_name": name, "type": "grade_low",
                         "course_id": cid, "course_name": cn,
                         "detail": f"Overall grade {pc}% — below the required {int(grade_pass_min)}%",
-                        "channel": "email", "email_to": email, "subject": subject, "delivered": bool(ok),
+                        "channel": "email", "email_to": email, "subject": subject, "delivered": bool(delivered),
                     })
-                new_logs.append({"user_id": sid, "type": "grade_low", "ref_date": week_start})
-                sent_keys.add((sid, "grade_low", week_start))
     except Exception as e:
         grade_error = str(e)
         logger.error("Grade reminders failed: %s", e)
@@ -777,8 +784,16 @@ def _run_daily_reminders(force=False):
     warnings_error = None
     if warning_rows:
         try:
-            supabase.table("student_warnings").insert(warning_rows).execute()
-            warnings_recorded = len(warning_rows)
+            # Idempotent: only insert records that don't already exist this week for the
+            # same student/type/course. Records are permanent; this just avoids duplicates
+            # while letting a missing record regenerate.
+            existing = supabase.table("student_warnings").select("student_id, type, course_id") \
+                .gte("created_at", week_start + "T00:00:00").execute().data or []
+            seen = {(e.get("student_id"), e.get("type"), e.get("course_id")) for e in existing}
+            fresh = [w for w in warning_rows if (w.get("student_id"), w.get("type"), w.get("course_id")) not in seen]
+            if fresh:
+                supabase.table("student_warnings").insert(fresh).execute()
+                warnings_recorded = len(fresh)
         except Exception as e:
             warnings_error = str(e)
             logger.error("Failed to record student_warnings: %s", e)
