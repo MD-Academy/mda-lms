@@ -1,0 +1,24 @@
+name: Daily reminders & warnings
+
+# Fires the backend's daily job every morning: inactivity/expiry reminder emails
+# AND low-attendance / low-grade warnings (with the permanent audit record).
+# Nobody has to run anything by hand. Runs even if the Render service was asleep
+# (the request wakes it). Also runnable on demand from the Actions tab.
+
+on:
+  schedule:
+    - cron: '0 6 * * *'      # every day at 06:00 UTC (~09:00 Israel)
+  workflow_dispatch: {}       # manual "Run workflow" button in GitHub
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger daily-emails
+        run: |
+          echo "Calling daily-emails…"
+          curl -fsS --max-time 300 -X POST \
+            https://mda-lms-backend.onrender.com/cron/daily-emails \
+            -H "x-cron-key: ${{ secrets.CRON_SECRET }}"
+          echo ""
+          echo "Done."
