@@ -669,6 +669,7 @@ def _run_daily_reminders(force=False):
 
     # ── Low overall grade (weekly, deduped) ──
     grade_sent = 0
+    grade_error = None
     try:
         gs_rows = supabase.table("app_settings").select("key, value").in_("key", ["grade_pass_min", "grade_quizzes_weight", "grade_bonus_cap"]).execute().data or []
         gsd = {r["key"]: r["value"] for r in gs_rows}
@@ -691,7 +692,7 @@ def _run_daily_reminders(force=False):
         exams_by_course = {}
         for r in ec:
             ex = exams_by_id.get(r["exam_id"])
-            if ex and ex.get("is_visible", True):
+            if ex and ex.get("is_visible") is not False:   # match the portal: null/true both count
                 exams_by_course.setdefault(r["course_id"], []).append((r["exam_id"], float(ex.get("weight_percent") or 0)))
         exam_score = {}
         for a in (supabase.table("exam_attempts").select("exam_id, student_id, score").execute().data or []):
@@ -769,6 +770,7 @@ def _run_daily_reminders(force=False):
                 new_logs.append({"user_id": sid, "type": "grade_low", "ref_date": week_start})
                 sent_keys.add((sid, "grade_low", week_start))
     except Exception as e:
+        grade_error = str(e)
         logger.error("Grade reminders failed: %s", e)
 
     warnings_recorded = 0
@@ -791,7 +793,7 @@ def _run_daily_reminders(force=False):
             "inactivity_sent": inactivity_sent, "expiry_sent": expiry_sent,
             "attendance_sent": attendance_sent, "grade_sent": grade_sent,
             "warnings_built": len(warning_rows), "warnings_recorded": warnings_recorded,
-            "warnings_error": warnings_error}
+            "warnings_error": warnings_error, "grade_error": grade_error}
 
 
 class RunRemindersReq(BaseModel):
