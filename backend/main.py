@@ -466,6 +466,65 @@ def notify_schedule(body: NotifyScheduleRequest, _=Depends(get_admin_user)):
     return {"success": True, "recipients": len(students), "sent": sent}
 
 
+class FeedbackNotifyReq(BaseModel):
+    note_id: str
+
+
+@app.post("/admin/notify/feedback")
+def notify_feedback(body: FeedbackNotifyReq, _=Depends(get_admin_user)):
+    """Email a student the feedback a teacher has just written for them.
+
+    The entry itself is already saved by the client — this only delivers it.
+    A failure here must never look like the feedback wasn't recorded, so we
+    always return 200 with `emailed` telling the caller what happened.
+    """
+    from datetime import datetime, timezone
+    rows = (supabase.table("student_notes")
+            .select("id, student_id, course_id, body, visible_to_student, author_name, emailed_at")
+            .eq("id", body.note_id).limit(1).execute().data or [])
+    if not rows:
+        raise HTTPException(status_code=404, detail="Feedback entry not found")
+    note = rows[0]
+
+    if not note.get("visible_to_student"):
+        return {"success": True, "emailed": False, "reason": "Internal note — not sent to the student."}
+    if note.get("emailed_at"):
+        return {"success": True, "emailed": False, "reason": "Already emailed."}
+
+    prof = (supabase.table("profiles").select("full_name, email, status")
+            .eq("id", note["student_id"]).limit(1).execute().data or [])
+    if not prof:
+        raise HTTPException(status_code=404, detail="Student not found")
+    student = prof[0]
+    if not student.get("email"):
+        return {"success": True, "emailed": False, "reason": "No email address on file for this student."}
+    if student.get("status") == "suspended":
+        return {"success": True, "emailed": False, "reason": "Student account is blocked — no email sent."}
+
+    course_name = None
+    if note.get("course_id"):
+        c = (supabase.table("courses").select("name").eq("id", note["course_id"]).limit(1).execute().data or [])
+        if c:
+            course_name = c[0].get("name")
+
+    subject, html = emails.teacher_feedback_email(
+        student.get("full_name"), note.get("author_name"), note.get("body"), course_name
+    )
+    ok = emails.send_email(student["email"], subject, html)
+    if ok:
+        # Stamped so a later correction to the wording doesn't re-send the email.
+        supabase.table("student_notes").update(
+            {"emailed_at": datetime.now(timezone.utc).isoformat()}
+        ).eq("id", note["id"]).execute()
+
+    return {
+        "success": True,
+        "emailed": bool(ok),
+        "to": student["email"],
+        "reason": None if ok else "The email could not be sent — the feedback is still saved in the portal.",
+    }
+
+
 # ── PASSWORD RESET (self-service) ────────────────────────────
 
 def _extract_action_link(res):

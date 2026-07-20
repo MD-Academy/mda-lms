@@ -3,6 +3,7 @@
 const NAV_ITEMS = [
     { id: 'dashboard', label: 'Dashboard', href: 'dashboard.html', icon: '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>' },
     { id: 'courses', label: 'My Courses', href: 'courses.html', icon: '<path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/>' },
+    { id: 'feedback', label: 'Teacher Feedback', href: 'feedback.html', icon: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>' },
     { id: 'recordings', label: 'Zoom Recordings', href: 'recordings.html', icon: '<polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>' },
     { id: 'booklets', label: 'Booklets', href: 'booklets.html', icon: '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/><line x1="12" y1="7" x2="12" y2="21"/>' },
     { id: 'exams', label: 'Exams', href: 'exams.html', icon: '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>' },
@@ -114,12 +115,14 @@ async function _initNotifications() {
         if (!session) return;
         _notifUid = session.user.id;
         const todayIso = new Date().toISOString().slice(0, 10);
-        const [coursesRes, csRes, schedRes, annRes, readsRes] = await Promise.all([
+        const [coursesRes, csRes, schedRes, annRes, readsRes, fbRes] = await Promise.all([
             db.from('courses').select('id'),
             db.from('course_subjects').select('room_id'),
             db.from('schedule_entries').select('id, room_id, course_id, entry_date, topic').gte('entry_date', todayIso).order('entry_date', { ascending: true }).limit(200),
             db.from('announcements').select('id, title, posted_at, course_id').order('posted_at', { ascending: false }).limit(200),
-            db.from('notification_reads').select('kind, ref_id').eq('student_id', _notifUid)
+            db.from('notification_reads').select('kind, ref_id').eq('student_id', _notifUid),
+            // Feedback a teacher wrote for this student (RLS returns only their own, shared ones).
+            db.from('student_notes').select('id, body, author_name, created_at').order('created_at', { ascending: false }).limit(100)
         ]);
         const myCourseIds = new Set((coursesRes.data || []).map(c => c.id));
         const mySubjectIds = new Set((csRes.data || []).map(r => r.room_id));
@@ -133,6 +136,16 @@ async function _initNotifications() {
         _notifUnread = [];
         anns.forEach(a => { if (!readSet.has(`announcement:${a.id}`)) _notifUnread.push({ kind: 'announcement', id: a.id, title: a.title, sub: 'Announcement · ' + _notifDate(a.posted_at), date: a.posted_at }); });
         sched.forEach(s => { if (!readSet.has(`schedule:${s.id}`)) _notifUnread.push({ kind: 'schedule', id: s.id, title: s.topic, sub: 'Upcoming class · ' + _notifDate(s.entry_date), date: s.entry_date }); });
+        (fbRes.data || []).forEach(f => {
+            if (readSet.has(`feedback:${f.id}`)) return;
+            const snip = String(f.body || '').replace(/\s+/g, ' ').trim();
+            _notifUnread.push({
+                kind: 'feedback', id: f.id,
+                title: snip.length > 110 ? snip.slice(0, 110) + '…' : snip,
+                sub: `Feedback from ${f.author_name || 'your teacher'} · ` + _notifDate(f.created_at),
+                date: f.created_at
+            });
+        });
         _renderBell();
     } catch (e) { /* notifications must never block the page */ }
 }
@@ -186,15 +199,19 @@ function _renderNotifList() {
     }
     const anns = _notifUnread.filter(n => n.kind === 'announcement');
     const sched = _notifUnread.filter(n => n.kind === 'schedule');
+    const fbs = _notifUnread.filter(n => n.kind === 'feedback');
     const iconAnn = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>';
     const iconSched = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>';
+    const iconFb = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
+    const cls = { announcement: 'ann', schedule: 'sched', feedback: 'fb' };
     const item = (n, icon) => `
-        <div class="notif-item ${n.kind === 'announcement' ? 'ann' : 'sched'}">
+        <div class="notif-item ${cls[n.kind] || 'ann'}"${n.kind === 'feedback' ? ` style="cursor:pointer;" onclick="location.href='feedback.html'"` : ''}>
             <span class="ni-icon">${icon}</span>
             <div class="ni-body"><div class="ni-title">${_esc(n.title || '')}</div><div class="ni-sub">${_esc(n.sub || '')}</div></div>
-            <button class="ni-x" title="Dismiss" onclick="dismissNotif('${n.kind}','${n.id}')">&times;</button>
+            <button class="ni-x" title="Dismiss" onclick="event.stopPropagation();dismissNotif('${n.kind}','${n.id}')">&times;</button>
         </div>`;
     let html = '';
+    if (fbs.length) html += `<div class="notif-group-label">💬 Feedback from your teachers</div>` + fbs.map(n => item(n, iconFb)).join('');
     if (anns.length) html += `<div class="notif-group-label">📣 Announcements</div>` + anns.map(n => item(n, iconAnn)).join('');
     if (sched.length) html += `<div class="notif-group-label">📅 Upcoming classes</div>` + sched.map(n => item(n, iconSched)).join('');
     list.innerHTML = html;

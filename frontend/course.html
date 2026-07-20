@@ -20,6 +20,39 @@
         function esc(s){ return s ? String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) : ''; }
         function fmtDay(d){ return d ? new Date(d + 'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : ''; }
 
+        function fmtStamp(iso){ return iso ? new Date(iso).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : ''; }
+
+        // ── FEEDBACK FROM TEACHERS (dated notes written whenever a teacher chooses) ──
+        // RLS returns only this student's own entries, and only the ones marked shared.
+        async function loadTeacherNotes(courseId){
+            const box = document.getElementById('notes-box');
+            if (!box) return;
+            const { data, error } = await db.from('student_notes')
+                .select('id, body, author_name, created_at, edited_at')
+                .eq('course_id', courseId).order('created_at', { ascending: false });
+            if (error) { console.error('[course] teacher feedback failed to load:', error); box.innerHTML = ''; return; }
+            const notes = data || [];
+            if (notes.length === 0) { box.innerHTML = ''; return; }   // nothing written yet — don't show an empty section
+
+            const rows = notes.map(n => `
+                <div class="att-day" style="align-items:flex-start;flex-direction:column;gap:6px;">
+                    <div style="font-size:12px;color:var(--text-muted);">
+                        <strong style="color:var(--navy-800);">${esc(fmtStamp(n.created_at))}</strong>
+                        · ${esc(n.author_name || 'Your teacher')}
+                    </div>
+                    <div style="font-size:14px;line-height:1.65;color:var(--text);white-space:pre-wrap;">${esc(n.body)}</div>
+                </div>`).join('');
+
+            box.innerHTML = `
+                <div class="section">
+                    <div class="section-title">💬 Feedback From Your Teachers</div>
+                    <div class="att-card">
+                        <p style="font-size:13px;color:var(--text-muted);margin:-4px 0 14px;line-height:1.5;">Personal feedback on how you're progressing in this course. The newest is first — earlier feedback stays here so you can look back on it.</p>
+                        <div class="att-list">${rows}</div>
+                    </div>
+                </div>`;
+        }
+
         // ── COURSE FEEDBACK (ratings for course / teachers / materials) ──
         let STUDENT_UID = null, FB = {}, FB_COURSE_ID = null;
         function fbKey(type, id){ return type + ':' + (id || ''); }
@@ -273,10 +306,12 @@
                 <div id="box"><div class="loader">Loading subjects…</div></div>
                 <div id="att-box" style="margin-top:24px;"></div>
                 <div id="grades-box" style="margin-top:24px;"></div>
+                <div id="notes-box" style="margin-top:24px;"></div>
                 <div id="feedback-box" style="margin-top:24px;"></div>`;
             const box = document.getElementById('box');
             loadAttendance(courseId);   // independent of subjects; renders only once classes exist
             loadGrades(courseId);       // exams + oral presentations + overall score
+            loadTeacherNotes(courseId); // dated feedback written by teachers
             loadFeedback(courseId);     // ratings: course / teachers / materials
 
             const { data: cs, error: csErr } = await db.from('course_subjects').select('room_id').eq('course_id', courseId);

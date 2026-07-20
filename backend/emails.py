@@ -304,6 +304,32 @@ def expiry_email(full_name: str, email: str, expiry_date: str, days_left: int):
 _TICKET_STATUS_LABELS = {"open": "Open", "in_progress": "In Progress", "completed": "Completed"}
 
 
+def teacher_feedback_email(full_name: str, teacher_name: str, feedback_text: str, course_name: str = None):
+    """Returns (subject, html) for the student: a teacher wrote them feedback.
+
+    Not tied to an exam or a test — a teacher writes whenever they have
+    something worth telling the student. The full text is in the email so
+    the student can read it without signing in.
+    """
+    safe_body = _esc(feedback_text).replace("\n", "<br>")
+    about = f' on <strong>{_esc(course_name)}</strong>' if course_name else ""
+    who = _esc(teacher_name or "One of your teachers")
+    body = f"""\
+      {_greeting(full_name)}
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">
+        <strong>{who}</strong> has written you some feedback{about}:</p>
+      <div style="background:#f7f9fc;border:1px solid #e6ecf4;border-left:4px solid #b01455;border-radius:10px;padding:16px 18px;margin:6px 0 4px;">
+        <div style="font-size:15px;line-height:1.7;color:#334155;">{safe_body}</div>
+      </div>
+      <p style="margin:16px 0 0;font-size:14px;line-height:1.6;color:#475569;">
+        Please take a moment to read it. If anything is unclear, speak to your teacher in the next class
+        or contact the office — we're here to help you.</p>
+      {_button("See all your feedback", STUDENT_URL + "/feedback.html")}
+      <p style="margin:0;font-size:12px;color:#94a3b8;">All the feedback your teachers write for you is kept in your portal under <strong>Teacher Feedback</strong>.</p>"""
+    subject = f"Feedback from {teacher_name}" if teacher_name else "New feedback from your teacher"
+    return (subject, _wrap("💬 Feedback from your teacher", body))
+
+
 def ticket_opened_email(student_name: str, title: str, body_text: str):
     """Returns (subject, html) for the office: a student opened a new ticket."""
     safe_body = _esc(body_text).replace("\n", "<br>")
