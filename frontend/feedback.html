@@ -79,20 +79,20 @@
             const totalPages = Math.max(1, Math.ceil(FB_TOTAL / FB_SIZE));
             const start = from + 1, end = Math.min(FB_PAGE * FB_SIZE, FB_TOTAL);
 
-            const sizePicker = FB_TOTAL > 25 ? `
+            const sizePicker = `
                 <select class="filter-select" onchange="setFbSize(this.value)" style="font-size:13px;">
                     ${[25, 50, 100].map(s => `<option value="${s}" ${s === FB_SIZE ? 'selected' : ''}>${s} per page</option>`).join('')}
-                </select>` : '';
+                </select>`;
 
-            const pager = FB_TOTAL > FB_SIZE ? `
-                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px;flex-wrap:wrap;">
+            const pager = `
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);flex-wrap:wrap;">
                     <div style="font-size:13px;color:var(--text-muted);">Showing ${start}–${end} of ${FB_TOTAL} — newest first</div>
                     <div style="display:flex;gap:8px;align-items:center;">
                         <button class="btn btn-ghost btn-sm" ${FB_PAGE <= 1 ? 'disabled style="opacity:.4;"' : ''} onclick="changeFbPage(-1)">← Newer</button>
                         <span style="font-size:13px;">Page ${FB_PAGE} of ${totalPages}</span>
                         <button class="btn btn-ghost btn-sm" ${FB_PAGE >= totalPages ? 'disabled style="opacity:.4;"' : ''} onclick="changeFbPage(1)">Older →</button>
                     </div>
-                </div>` : '';
+                </div>`;
 
             box.innerHTML = `
                 <div class="section">
