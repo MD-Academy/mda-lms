@@ -79,28 +79,26 @@
             const totalPages = Math.max(1, Math.ceil(FB_TOTAL / FB_SIZE));
             const start = from + 1, end = Math.min(FB_PAGE * FB_SIZE, FB_TOTAL);
 
-            const sizePicker = `
-                <select class="filter-select" onchange="setFbSize(this.value)" style="font-size:13px;">
-                    ${[25, 50, 100].map(s => `<option value="${s}" ${s === FB_SIZE ? 'selected' : ''}>${s} per page</option>`).join('')}
-                </select>`;
-
+            // Reuses the portal's own pager component (see .pager in student.css).
             const pager = `
-                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);flex-wrap:wrap;">
-                    <div style="font-size:13px;color:var(--text-muted);">Showing ${start}–${end} of ${FB_TOTAL} — newest first</div>
-                    <div style="display:flex;gap:8px;align-items:center;">
-                        <button class="btn btn-ghost btn-sm" ${FB_PAGE <= 1 ? 'disabled style="opacity:.4;"' : ''} onclick="changeFbPage(-1)">← Newer</button>
-                        <span style="font-size:13px;">Page ${FB_PAGE} of ${totalPages}</span>
-                        <button class="btn btn-ghost btn-sm" ${FB_PAGE >= totalPages ? 'disabled style="opacity:.4;"' : ''} onclick="changeFbPage(1)">Older →</button>
+                <div class="pager">
+                    <div class="pager-info">Showing ${start}–${end} of ${FB_TOTAL} — newest first</div>
+                    <div class="pager-ctrls">
+                        <label class="pager-size">Per page
+                            <select onchange="setFbSize(this.value)">
+                                ${[25, 50, 100].map(s => `<option value="${s}" ${s === FB_SIZE ? 'selected' : ''}>${s}</option>`).join('')}
+                            </select>
+                        </label>
+                        <button class="pager-btn" ${FB_PAGE <= 1 ? 'disabled' : ''} onclick="changeFbPage(-1)">‹ Newer</button>
+                        <span class="pager-page">${FB_PAGE} / ${totalPages}</span>
+                        <button class="pager-btn" ${FB_PAGE >= totalPages ? 'disabled' : ''} onclick="changeFbPage(1)">Older ›</button>
                     </div>
                 </div>`;
 
             box.innerHTML = `
                 <div class="section">
-                    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
-                        <div class="section-title" style="margin:0;">💬 Feedback from Your Teachers</div>
-                        ${sizePicker}
-                    </div>
-                    <div class="att-card" style="margin-top:12px;">
+                    <div class="section-title">💬 Feedback from Your Teachers</div>
+                    <div class="att-card">
                         <p style="font-size:13px;color:var(--text-muted);margin:-4px 0 16px;line-height:1.55;">
                             Personal feedback your teachers have written for you — about how you're progressing, what to work on,
                             or advice after a class. The newest is first, and earlier feedback stays here so you can look back on it.
