@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/png" href="assets/images/favicon.png?v=1">
-    <title>Medical Doctor Academy — Teacher Feedback</title>
+    <title>Medical Doctor Academy — Feedback from Teachers</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/student.css">
@@ -20,19 +20,28 @@
         function esc(s){ return s ? String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) : ''; }
         function fmtStamp(iso){ return iso ? new Date(iso).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : ''; }
 
+        // Only one page is ever fetched — the record builds up over the whole programme.
+        let FB_PAGE = 1, FB_SIZE = 25, FB_TOTAL = 0;
+        const COURSE_NAMES = {};
+
         (async () => {
             const auth = await requireStudent();
             if (!auth) return;
-            renderLayout('feedback', 'Teacher Feedback', 'What your teachers have written for you', auth.profile);
+            renderLayout('feedback', 'Feedback from Teachers', 'What your teachers have written for you', auth.profile);
 
-            const content = document.getElementById('page-content');
-            content.innerHTML = `<div id="box"><div class="loader">Loading your feedback…</div></div>`;
+            document.getElementById('page-content').innerHTML = `<div id="box"><div class="loader">Loading your feedback…</div></div>`;
+            await loadPage();
+        })();
+
+        async function loadPage(){
             const box = document.getElementById('box');
+            const from = (FB_PAGE - 1) * FB_SIZE, to = from + FB_SIZE - 1;
 
             // RLS returns only this student's own entries, and only the ones a teacher chose to share.
-            const { data, error } = await db.from('student_notes')
-                .select('id, body, course_id, author_name, created_at')
-                .order('created_at', { ascending: false });
+            const { data, count, error } = await db.from('student_notes')
+                .select('id, body, course_id, author_name, created_at', { count: 'exact' })
+                .order('created_at', { ascending: false })
+                .range(from, to);
 
             if (error) {
                 console.error('[feedback] failed to load:', error);
@@ -41,61 +50,108 @@
             }
 
             const notes = data || [];
-            if (notes.length === 0) {
+            FB_TOTAL = count || 0;
+
+            if (FB_TOTAL === 0) {
                 box.innerHTML = `<div class="empty-state">
                     <h3>No feedback yet</h3>
                     <p>When one of your teachers writes feedback for you, it appears here — and you'll get a notification in the bell at the top of the page.</p>
                 </div>`;
-                markFeedbackRead([]);
                 return;
             }
 
             // Course names, so a note tied to a course can say which one.
-            const courseIds = [...new Set(notes.map(n => n.course_id).filter(Boolean))];
-            const names = {};
-            if (courseIds.length) {
-                const { data: cs } = await db.from('courses').select('id, name').in('id', courseIds);
-                (cs || []).forEach(c => { names[c.id] = c.name; });
+            const missing = [...new Set(notes.map(n => n.course_id).filter(id => id && !COURSE_NAMES[id]))];
+            if (missing.length) {
+                const { data: cs } = await db.from('courses').select('id, name').in('id', missing);
+                (cs || []).forEach(c => { COURSE_NAMES[c.id] = c.name; });
             }
 
             const rows = notes.map(n => `
                 <div class="att-day" style="align-items:flex-start;flex-direction:column;gap:7px;">
                     <div style="font-size:12px;color:var(--text-muted);">
                         <strong style="color:var(--navy-800);">${esc(fmtStamp(n.created_at))}</strong>
-                        · ${esc(n.author_name || 'Your teacher')}${n.course_id && names[n.course_id] ? ' · about ' + esc(names[n.course_id]) : ''}
+                        · ${esc(n.author_name || 'Your teacher')}${n.course_id && COURSE_NAMES[n.course_id] ? ' · about ' + esc(COURSE_NAMES[n.course_id]) : ''}
                     </div>
                     <div style="font-size:14.5px;line-height:1.7;color:var(--text);white-space:pre-wrap;">${esc(n.body)}</div>
                 </div>`).join('');
 
+            const totalPages = Math.max(1, Math.ceil(FB_TOTAL / FB_SIZE));
+            const start = from + 1, end = Math.min(FB_PAGE * FB_SIZE, FB_TOTAL);
+
+            const sizePicker = FB_TOTAL > 25 ? `
+                <select class="filter-select" onchange="setFbSize(this.value)" style="font-size:13px;">
+                    ${[25, 50, 100].map(s => `<option value="${s}" ${s === FB_SIZE ? 'selected' : ''}>${s} per page</option>`).join('')}
+                </select>` : '';
+
+            const pager = FB_TOTAL > FB_SIZE ? `
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px;flex-wrap:wrap;">
+                    <div style="font-size:13px;color:var(--text-muted);">Showing ${start}–${end} of ${FB_TOTAL} — newest first</div>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <button class="btn btn-ghost btn-sm" ${FB_PAGE <= 1 ? 'disabled style="opacity:.4;"' : ''} onclick="changeFbPage(-1)">← Newer</button>
+                        <span style="font-size:13px;">Page ${FB_PAGE} of ${totalPages}</span>
+                        <button class="btn btn-ghost btn-sm" ${FB_PAGE >= totalPages ? 'disabled style="opacity:.4;"' : ''} onclick="changeFbPage(1)">Older →</button>
+                    </div>
+                </div>` : '';
+
             box.innerHTML = `
                 <div class="section">
-                    <div class="section-title">💬 Feedback From Your Teachers</div>
-                    <div class="att-card">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                        <div class="section-title" style="margin:0;">💬 Feedback from Your Teachers</div>
+                        ${sizePicker}
+                    </div>
+                    <div class="att-card" style="margin-top:12px;">
                         <p style="font-size:13px;color:var(--text-muted);margin:-4px 0 16px;line-height:1.55;">
                             Personal feedback your teachers have written for you — about how you're progressing, what to work on,
                             or advice after a class. The newest is first, and earlier feedback stays here so you can look back on it.
                         </p>
                         <div class="att-list">${rows}</div>
+                        ${pager}
                     </div>
                 </div>`;
 
-            // Reading the page clears these from the bell.
-            markFeedbackRead(notes.map(n => n.id));
-        })();
+            // Only what the student actually saw counts as read. If they have more
+            // unread further back, it stays on the bell until they page to it.
+            markSeen(notes.map(n => n.id));
+        }
 
-        // Mark every feedback entry on this page as seen, so the bell count drops.
-        async function markFeedbackRead(ids) {
+        function changeFbPage(delta){
+            const totalPages = Math.max(1, Math.ceil(FB_TOTAL / FB_SIZE));
+            const n = FB_PAGE + delta;
+            if (n < 1 || n > totalPages) return;
+            FB_PAGE = n;
+            loadPage();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function setFbSize(v){
+            FB_SIZE = parseInt(v, 10) || 25;
+            FB_PAGE = 1;
+            loadPage();
+        }
+
+        // Mark the entries on screen as seen, so the bell count drops.
+        async function markSeen(ids){
             if (!ids.length) return;
             try {
                 const { data: { session } } = await db.auth.getSession();
                 if (!session) return;
                 const rows = ids.map(id => ({ student_id: session.user.id, kind: 'feedback', ref_id: id }));
                 await db.from('notification_reads').upsert(rows, { onConflict: 'student_id,kind,ref_id' });
-                if (typeof _notifUnread !== 'undefined') {
-                    _notifUnread = _notifUnread.filter(n => n.kind !== 'feedback');
-                    if (typeof _renderBell === 'function') _renderBell();
-                }
             } catch (e) { /* never block the page */ }
+            // The bell loads on its own schedule, so drop these once it's ready
+            // rather than assuming it already is.
+            dropFromBell(ids, 0);
+        }
+
+        function dropFromBell(ids, tries){
+            if (typeof _notifUnread === 'undefined' || typeof _renderBell !== 'function') return;
+            const seen = new Set(ids.map(String));
+            const before = _notifUnread.length;
+            _notifUnread = _notifUnread.filter(n => !(n.kind === 'feedback' && seen.has(String(n.id))));
+            if (before !== _notifUnread.length) { _renderBell(); return; }
+            // Nothing matched yet — the bell may still be fetching. Try again briefly.
+            if (tries < 6) setTimeout(() => dropFromBell(ids, tries + 1), 500);
         }
     </script>
 </body>

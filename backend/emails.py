@@ -325,7 +325,7 @@ def teacher_feedback_email(full_name: str, teacher_name: str, feedback_text: str
         Please take a moment to read it. If anything is unclear, speak to your teacher in the next class
         or contact the office — we're here to help you.</p>
       {_button("See all your feedback", STUDENT_URL + "/feedback.html")}
-      <p style="margin:0;font-size:12px;color:#94a3b8;">All the feedback your teachers write for you is kept in your portal under <strong>Teacher Feedback</strong>.</p>"""
+      <p style="margin:0;font-size:12px;color:#94a3b8;">All the feedback your teachers write for you is kept in your portal under <strong>Feedback from Teachers</strong>.</p>"""
     subject = f"Feedback from {teacher_name}" if teacher_name else "New feedback from your teacher"
     return (subject, _wrap("💬 Feedback from your teacher", body))
 
