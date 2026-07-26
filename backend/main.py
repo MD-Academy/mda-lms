@@ -1281,7 +1281,7 @@ def student_staff_directory(authorization: str = Header(...)):
     service role. Also used to show a teacher's photo beside the feedback they wrote."""
     _require_active_student(authorization)
     rows = (supabase.table("profiles")
-            .select("id, full_name, avatar_url, role, status")
+            .select("id, full_name, job_title, avatar_url, role, status")
             .in_("role", ["admin", "superadmin"]).execute().data or [])
     rows = [r for r in rows if r.get("status") != "suspended"]
     # Super-admins first, then by name — a stable, friendly order.
@@ -1289,6 +1289,7 @@ def student_staff_directory(authorization: str = Header(...)):
     return {"staff": [{
         "id": r["id"],
         "full_name": r.get("full_name") or "Staff",
+        "job_title": r.get("job_title"),
         "avatar_url": r.get("avatar_url"),
     } for r in rows]}
 

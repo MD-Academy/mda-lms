@@ -82,10 +82,10 @@
                 const r = await apiRequest('GET', '/student/staff-directory');
                 const staff = (r && r.staff) || [];
                 STAFF = {};
-                staff.forEach(s => { STAFF[s.id] = { full_name: s.full_name, avatar_url: s.avatar_url }; });
+                staff.forEach(s => { STAFF[s.id] = { full_name: s.full_name, avatar_url: s.avatar_url, job_title: s.job_title }; });
                 if (!staff.length) { box.innerHTML = ''; return; }
                 const chips = staff.map(s => `
-                    <span class="staff-chip">${staffAvatar(s.id, s.full_name, false)}<span class="nm">${esc(s.full_name)}</span></span>`).join('');
+                    <span class="staff-chip">${staffAvatar(s.id, s.full_name, false)}<span class="who"><span class="nm">${esc(s.full_name)}</span>${s.job_title ? `<span class="role">${esc(s.job_title)}</span>` : ''}</span></span>`).join('');
                 box.innerHTML = `
                     <div class="section">
                         <div class="att-card">
