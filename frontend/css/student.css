@@ -118,6 +118,16 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .notif-item.fb:hover { border-color: #f0c2d8; background: #fffafc; }
 .notif-item.fb .ni-title { font-weight: 500; line-height: 1.5; }
 
+/* ── Feedback notes (the teacher's message to the student) ── */
+.fb-note { background: #fffaf3; border: 1px solid #fde4c4; border-left: 4px solid #f59e0b; border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+.fb-note-new { background: #fff4e6; border-color: #fb923c; border-left-color: #ea580c; box-shadow: 0 0 0 3px rgba(251,146,60,.30); animation: fbNotePulse 1.6s ease-in-out 2; }
+.fb-note-head { font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fb-note-head strong { color: var(--navy-800); }
+.fb-note-body { font-size: 14.5px; line-height: 1.7; color: var(--text); white-space: pre-wrap; margin-top: 6px; }
+.fb-new-pill { font-size: 10px; font-weight: 800; letter-spacing: .4px; text-transform: uppercase; color: #fff; background: #ea580c; padding: 2px 8px; border-radius: 999px; }
+@keyframes fbNotePulse { 0%,100% { box-shadow: 0 0 0 3px rgba(251,146,60,.20); } 50% { box-shadow: 0 0 0 6px rgba(234,88,12,.42); } }
+@media (prefers-reduced-motion: reduce) { .fb-note-new { animation: none; } }
+
 /* ── Reply bubbles in a feedback thread ── */
 .reply-row { border-radius: 11px; padding: 10px 13px; margin-top: 9px; border: 1px solid; position: relative; }
 .reply-in  { background: #f0fdf4; border-color: #bbf7d0; margin-right: 20px; }      /* a reply you received */

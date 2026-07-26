@@ -24,6 +24,7 @@
         let FB_PAGE = 1, FB_SIZE = 25, FB_TOTAL = 0;
         let REPLIES = {};              // note_id -> [replies], both sides
         let NEW_REPLIES = new Set();   // teacher-reply ids that are still unread
+        let NEW_NOTES = new Set();     // feedback-note ids that are still unread
         const COURSE_NAMES = {};
         let STUDENT_NAME = 'You';
 
@@ -59,8 +60,18 @@
             // The whole conversation on each note (both sides), for the page we're showing.
             REPLIES = {};
             NEW_REPLIES = new Set();
+            NEW_NOTES = new Set();
             const noteIds = notes.map(n => n.id);
-            if (noteIds.length) {
+            const { data: { session } } = await db.auth.getSession();
+            const myId = session && session.user.id;
+
+            if (noteIds.length && myId) {
+                // Which feedback notes are still unread → highlight them (orange).
+                const { data: readNotes } = await db.from('notification_reads')
+                    .select('ref_id').eq('student_id', myId).eq('kind', 'feedback').in('ref_id', noteIds);
+                const readNoteSet = new Set((readNotes || []).map(r => r.ref_id));
+                notes.forEach(n => { if (!readNoteSet.has(n.id)) NEW_NOTES.add(n.id); });
+
                 const { data: reps } = await db.from('student_note_replies')
                     .select('id, note_id, author_role, author_name, body, created_at')
                     .in('note_id', noteIds).order('created_at', { ascending: true });
@@ -69,9 +80,8 @@
                 // Which teacher replies are still unread → highlight them as new.
                 const staffReplyIds = (reps || []).filter(r => r.author_role === 'staff').map(r => r.id);
                 if (staffReplyIds.length) {
-                    const { data: { session } } = await db.auth.getSession();
                     const { data: readRows } = await db.from('notification_reads')
-                        .select('ref_id').eq('student_id', session.user.id).eq('kind', 'reply').in('ref_id', staffReplyIds);
+                        .select('ref_id').eq('student_id', myId).eq('kind', 'reply').in('ref_id', staffReplyIds);
                     const readSet = new Set((readRows || []).map(r => r.ref_id));
                     staffReplyIds.forEach(id => { if (!readSet.has(id)) NEW_REPLIES.add(id); });
                 }
@@ -92,15 +102,19 @@
                 (cs || []).forEach(c => { COURSE_NAMES[c.id] = c.name; });
             }
 
-            const rows = notes.map(n => `
-                <div class="att-day" style="align-items:flex-start;flex-direction:column;gap:7px;">
-                    <div style="font-size:12px;color:var(--text-muted);">
-                        <strong style="color:var(--navy-800);">${esc(fmtStamp(n.created_at))}</strong>
-                        · ${esc(n.author_name || 'Your teacher')}${n.course_id && COURSE_NAMES[n.course_id] ? ' · about ' + esc(COURSE_NAMES[n.course_id]) : ''}
+            const rows = notes.map(n => {
+                const isNew = NEW_NOTES.has(n.id);
+                return `
+                <div class="fb-note ${isNew ? 'fb-note-new' : ''}">
+                    <div class="fb-note-head">
+                        <strong>${esc(n.author_name || 'Your teacher')}</strong>
+                        <span>· ${esc(fmtStamp(n.created_at))}${n.course_id && COURSE_NAMES[n.course_id] ? ' · about ' + esc(COURSE_NAMES[n.course_id]) : ''}</span>
+                        ${isNew ? '<span class="fb-new-pill">New</span>' : ''}
                     </div>
-                    <div style="font-size:14.5px;line-height:1.7;color:var(--text);white-space:pre-wrap;">${esc(n.body)}</div>
+                    <div class="fb-note-body">${esc(n.body)}</div>
                     ${threadHtml(n.id)}
-                </div>`).join('');
+                </div>`;
+            }).join('');
 
             const totalPages = Math.max(1, Math.ceil(FB_TOTAL / FB_SIZE));
             const start = from + 1, end = Math.min(FB_PAGE * FB_SIZE, FB_TOTAL);
@@ -129,7 +143,7 @@
                             Personal feedback your teachers have written for you — about how you're progressing, what to work on,
                             or advice after a class. The newest is first, and earlier feedback stays here so you can look back on it.
                         </p>
-                        <div class="att-list">${rows}</div>
+                        <div style="margin-top:16px;">${rows}</div>
                         ${pager}
                     </div>
                 </div>`;
