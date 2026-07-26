@@ -525,6 +525,107 @@ def notify_feedback(body: FeedbackNotifyReq, _=Depends(get_admin_user)):
     }
 
 
+class FeedbackReplyReq(BaseModel):
+    note_id: str
+    body: str
+
+
+def _feedback_thread_context(note_id: str):
+    """Load the note + student + course name for a reply. Shared by both directions."""
+    rows = (supabase.table("student_notes")
+            .select("id, student_id, course_id, body, visible_to_student, author_id, author_name")
+            .eq("id", note_id).limit(1).execute().data or [])
+    if not rows:
+        raise HTTPException(status_code=404, detail="Feedback entry not found.")
+    note = rows[0]
+    course_name = None
+    if note.get("course_id"):
+        c = (supabase.table("courses").select("name").eq("id", note["course_id"]).limit(1).execute().data or [])
+        if c:
+            course_name = c[0].get("name")
+    return note, course_name
+
+
+@app.post("/student/feedback-reply")
+def student_feedback_reply(body: FeedbackReplyReq, authorization: str = Header(...)):
+    """A student replies to a piece of feedback. Saved here (service role, RLS-safe)
+    and the teacher who wrote it is emailed so they don't have to check the portal."""
+    user = _require_active_student(authorization)
+    text = (body.body or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Your reply can't be empty.")
+    if len(text) > 5000:
+        raise HTTPException(status_code=400, detail="Your reply is too long.")
+
+    note, course_name = _feedback_thread_context(body.note_id)
+    # Only on your own, still-shared feedback.
+    if note["student_id"] != user.id or not note.get("visible_to_student"):
+        raise HTTPException(status_code=403, detail="This isn't your feedback.")
+
+    prof = (supabase.table("profiles").select("full_name").eq("id", user.id).limit(1).execute().data or [{}])[0]
+    student_name = prof.get("full_name") or "A student"
+
+    try:
+        supabase.table("student_note_replies").insert({
+            "note_id": note["id"], "author_role": "student",
+            "author_id": user.id, "author_name": student_name, "body": text,
+        }).execute()
+    except Exception as e:
+        logger.error("Feedback reply insert failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Could not save your reply: {str(e)}")
+
+    # Email the teacher who wrote the feedback (best-effort; never fails the reply).
+    emailed = False
+    try:
+        if note.get("author_id"):
+            teacher = (supabase.table("profiles").select("full_name, email")
+                       .eq("id", note["author_id"]).limit(1).execute().data or [])
+            if teacher and teacher[0].get("email") and emails.is_valid_email(teacher[0]["email"]):
+                subject, html = emails.feedback_reply_to_staff_email(
+                    teacher[0].get("full_name"), student_name, note.get("body"), text, course_name
+                )
+                emailed = emails.send_email(teacher[0]["email"], subject, html)
+    except Exception as e:
+        logger.error("Feedback reply notification failed: %s", e)
+
+    return {"success": True, "emailed": emailed}
+
+
+class AdminFeedbackReplyReq(BaseModel):
+    reply_id: str
+
+
+@app.post("/admin/notify/feedback-reply")
+def notify_feedback_reply(body: AdminFeedbackReplyReq, _=Depends(get_admin_user)):
+    """A teacher replied in the thread from admin (row already inserted by the
+    client). Email the student so they see it. Always 200 with `emailed`."""
+    rows = (supabase.table("student_note_replies")
+            .select("id, note_id, author_role, author_name, body")
+            .eq("id", body.reply_id).limit(1).execute().data or [])
+    if not rows:
+        raise HTTPException(status_code=404, detail="Reply not found.")
+    reply = rows[0]
+    if reply.get("author_role") != "staff":
+        return {"success": True, "emailed": False, "reason": "Not a staff reply."}
+
+    note, course_name = _feedback_thread_context(reply["note_id"])
+    student = (supabase.table("profiles").select("full_name, email, status")
+               .eq("id", note["student_id"]).limit(1).execute().data or [])
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found.")
+    s = student[0]
+    if not s.get("email"):
+        return {"success": True, "emailed": False, "reason": "No email on file for this student."}
+    if s.get("status") == "suspended":
+        return {"success": True, "emailed": False, "reason": "Student account is blocked."}
+
+    subject, html = emails.feedback_reply_to_student_email(
+        s.get("full_name"), reply.get("author_name"), reply.get("body"), course_name
+    )
+    ok = emails.send_email(s["email"], subject, html)
+    return {"success": True, "emailed": bool(ok), "to": s["email"]}
+
+
 # ── PASSWORD RESET (self-service) ────────────────────────────
 
 def _extract_action_link(res):

@@ -22,11 +22,14 @@
 
         // Only one page is ever fetched — the record builds up over the whole programme.
         let FB_PAGE = 1, FB_SIZE = 25, FB_TOTAL = 0;
+        let REPLIES = {};              // note_id -> [replies], both sides
         const COURSE_NAMES = {};
+        let STUDENT_NAME = 'You';
 
         (async () => {
             const auth = await requireStudent();
             if (!auth) return;
+            STUDENT_NAME = (auth.profile && auth.profile.full_name) || 'You';
             renderLayout('feedback', 'Feedback from Teachers', 'What your teachers have written for you', auth.profile);
 
             document.getElementById('page-content').innerHTML = `<div id="box"><div class="loader">Loading your feedback…</div></div>`;
@@ -52,6 +55,16 @@
             const notes = data || [];
             FB_TOTAL = count || 0;
 
+            // The whole conversation on each note (both sides), for the page we're showing.
+            REPLIES = {};
+            const noteIds = notes.map(n => n.id);
+            if (noteIds.length) {
+                const { data: reps } = await db.from('student_note_replies')
+                    .select('id, note_id, author_role, author_name, body, created_at')
+                    .in('note_id', noteIds).order('created_at', { ascending: true });
+                (reps || []).forEach(r => { (REPLIES[r.note_id] = REPLIES[r.note_id] || []).push(r); });
+            }
+
             if (FB_TOTAL === 0) {
                 box.innerHTML = `<div class="empty-state">
                     <h3>No feedback yet</h3>
@@ -74,6 +87,7 @@
                         · ${esc(n.author_name || 'Your teacher')}${n.course_id && COURSE_NAMES[n.course_id] ? ' · about ' + esc(COURSE_NAMES[n.course_id]) : ''}
                     </div>
                     <div style="font-size:14.5px;line-height:1.7;color:var(--text);white-space:pre-wrap;">${esc(n.body)}</div>
+                    ${threadHtml(n.id)}
                 </div>`).join('');
 
             const totalPages = Math.max(1, Math.ceil(FB_TOTAL / FB_SIZE));
@@ -111,6 +125,73 @@
             // Only what the student actually saw counts as read. If they have more
             // unread further back, it stays on the bell until they page to it.
             markSeen(notes.map(n => n.id));
+        }
+
+        // The conversation under one feedback entry, plus the student's reply box.
+        function threadHtml(noteId){
+            const thread = REPLIES[noteId] || [];
+            const bubbles = thread.map(r => {
+                const mine = r.author_role === 'student';
+                return `<div style="margin-top:9px;padding:10px 12px;border-radius:10px;
+                        background:${mine ? '#eef4ff' : '#fdf0f6'};
+                        border:1px solid ${mine ? '#d6e4ff' : '#f4d3e4'};
+                        ${mine ? 'margin-left:22px;' : 'margin-right:22px;'}">
+                    <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:3px;">
+                        <strong style="color:var(--navy-800);">${mine ? 'You' : esc(r.author_name || 'Your teacher')}</strong>
+                        · ${esc(fmtStamp(r.created_at))}
+                    </div>
+                    <div style="font-size:14px;line-height:1.6;color:var(--text);white-space:pre-wrap;">${esc(r.body)}</div>
+                </div>`;
+            }).join('');
+
+            return `
+                <div style="width:100%;margin-top:4px;">
+                    ${bubbles}
+                    <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">
+                        <textarea id="reply-${noteId}" rows="2" placeholder="Reply to your teacher…"
+                            style="width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:10px;
+                                   font-family:inherit;font-size:14px;resize:vertical;"></textarea>
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <button class="btn btn-primary btn-sm" onclick="sendReply('${noteId}', this)">Send reply</button>
+                            <span id="reply-msg-${noteId}" style="font-size:12.5px;"></span>
+                        </div>
+                    </div>
+                </div>`;
+        }
+
+        async function sendReply(noteId, btn){
+            const ta = document.getElementById('reply-' + noteId);
+            const msg = document.getElementById('reply-msg-' + noteId);
+            const text = (ta.value || '').trim();
+            msg.textContent = '';
+            if (!text){ msg.style.color = 'var(--red)'; msg.textContent = 'Write your reply first.'; return; }
+            btn.disabled = true; const label = btn.textContent; btn.textContent = 'Sending…';
+            try {
+                const r = await apiRequest('POST', '/student/feedback-reply', { note_id: noteId, body: text });
+                // Show it immediately without a full reload.
+                (REPLIES[noteId] = REPLIES[noteId] || []).push({
+                    id: 'tmp', note_id: noteId, author_role: 'student',
+                    author_name: STUDENT_NAME, body: text, created_at: new Date().toISOString()
+                });
+                ta.value = '';
+                rerenderThread(noteId);
+                const m2 = document.getElementById('reply-msg-' + noteId);
+                if (m2){ m2.style.color = 'var(--green)'; m2.textContent = r && r.emailed ? 'Sent — your teacher has been emailed ✓' : 'Sent ✓'; setTimeout(() => { m2.textContent = ''; }, 4000); }
+            } catch (e) {
+                msg.style.color = 'var(--red)'; msg.textContent = e.message || 'Could not send. Please try again.';
+                btn.disabled = false; btn.textContent = label;
+            }
+        }
+
+        // Re-draw just one note's thread in place (keeps the rest of the page still).
+        function rerenderThread(noteId){
+            const ta = document.getElementById('reply-' + noteId);
+            if (!ta) return loadPage();
+            const container = ta.closest('.att-day');
+            if (!container) return loadPage();
+            // The thread block is the last child (added by threadHtml).
+            const block = ta.closest('div[style*="margin-top:4px"]');
+            if (block){ block.outerHTML = threadHtml(noteId); }
         }
 
         function changeFbPage(delta){

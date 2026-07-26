@@ -330,6 +330,48 @@ def teacher_feedback_email(full_name: str, teacher_name: str, feedback_text: str
     return (subject, _wrap("💬 Feedback from your teacher", body))
 
 
+def feedback_reply_to_staff_email(teacher_name: str, student_name: str, original: str, reply_text: str, course_name: str = None):
+    """Returns (subject, html) for the teacher: a student replied to their feedback."""
+    safe_reply = _esc(reply_text).replace("\n", "<br>")
+    safe_orig = _esc(original).replace("\n", "<br>")
+    about = f' on <strong>{_esc(course_name)}</strong>' if course_name else ""
+    first = (teacher_name or "there").strip().split()[0] if teacher_name else "there"
+    body = f"""\
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">Dear {_esc(first)},</p>
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">
+        <strong>{_esc(student_name or 'A student')}</strong> has replied to feedback you wrote for them{about}.</p>
+      <div style="background:#f7f9fc;border:1px solid #e6ecf4;border-left:4px solid #b01455;border-radius:10px;padding:14px 18px;margin:6px 0 14px;">
+        <div style="font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;">Their reply</div>
+        <div style="font-size:15px;line-height:1.7;color:#334155;">{safe_reply}</div>
+      </div>
+      <div style="background:#fbfcfe;border:1px solid #eef2f7;border-radius:10px;padding:12px 16px;margin:0 0 4px;">
+        <div style="font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;">Your original feedback</div>
+        <div style="font-size:13.5px;line-height:1.6;color:#64748b;">{safe_orig}</div>
+      </div>
+      {_button("Open in the admin portal", "https://admin.medicaldoctor-studies.com/students.html")}
+      <p style="margin:0;font-size:12px;color:#94a3b8;">Open the student's <strong>Feedback</strong> to read the full thread and reply.</p>"""
+    subject = f"{student_name or 'A student'} replied to your feedback"
+    return (subject, _wrap("💬 A student replied to your feedback", body))
+
+
+def feedback_reply_to_student_email(student_name: str, teacher_name: str, reply_text: str, course_name: str = None):
+    """Returns (subject, html) for the student: their teacher replied in the thread."""
+    safe_reply = _esc(reply_text).replace("\n", "<br>")
+    about = f' on <strong>{_esc(course_name)}</strong>' if course_name else ""
+    who = _esc(teacher_name or "Your teacher")
+    body = f"""\
+      {_greeting(student_name)}
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">
+        <strong>{who}</strong> has replied to your message about their feedback{about}:</p>
+      <div style="background:#f7f9fc;border:1px solid #e6ecf4;border-left:4px solid #b01455;border-radius:10px;padding:16px 18px;margin:6px 0 4px;">
+        <div style="font-size:15px;line-height:1.7;color:#334155;">{safe_reply}</div>
+      </div>
+      {_button("Open the conversation", STUDENT_URL + "/feedback.html")}
+      <p style="margin:0;font-size:12px;color:#94a3b8;">You can reply again from <strong>Feedback from Teachers</strong> in your portal.</p>"""
+    subject = f"{teacher_name} replied to you" if teacher_name else "Your teacher replied to you"
+    return (subject, _wrap("💬 Reply from your teacher", body))
+
+
 def ticket_opened_email(student_name: str, title: str, body_text: str):
     """Returns (subject, html) for the office: a student opened a new ticket."""
     safe_body = _esc(body_text).replace("\n", "<br>")
