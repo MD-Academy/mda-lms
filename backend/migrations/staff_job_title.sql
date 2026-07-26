@@ -11,3 +11,8 @@
 -- ════════════════════════════════════════════════════════════
 
 alter table profiles add column if not exists job_title text;
+
+-- profiles uses column-level UPDATE grants, so the new column needs its own
+-- grant for staff to save it from their profile page. (No-op if the table
+-- already has a table-wide update grant.)
+grant update (job_title) on profiles to authenticated;
