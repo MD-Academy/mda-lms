@@ -36,10 +36,31 @@
             const nm = (s && s.full_name) || name || 'Staff';
             const cls = 'mini-ava' + (small ? ' sm' : '');
             if (s && s.avatar_url){
-                return `<span class="${cls}" data-initials="${esc(initials(nm))}"><img src="${esc(s.avatar_url)}" alt="" loading="lazy" onerror="this.parentNode.classList.add('is-fallback');this.remove();"></span>`;
+                return `<span class="${cls} has-photo" data-name="${esc(nm)}" data-full="${esc(s.avatar_url)}"><img src="${esc(s.avatar_url)}" alt="" loading="lazy" onerror="this.parentNode.classList.add('is-fallback');this.remove();"></span>`;
             }
             return `<span class="${cls} is-fallback" data-initials="${esc(initials(nm))}"></span>`;
         }
+
+        // Click any staff photo to see it enlarged ("ah, that's who this is").
+        document.addEventListener('click', e => {
+            const ava = e.target.closest('.mini-ava.has-photo');
+            if (ava && ava.dataset.full) openPhoto(ava.dataset.full, ava.dataset.name);
+        });
+        function openPhoto(src, name){
+            let ov = document.getElementById('photo-lightbox');
+            if (!ov){
+                ov = document.createElement('div');
+                ov.id = 'photo-lightbox';
+                ov.className = 'photo-lightbox';
+                ov.innerHTML = `<div class="pl-inner"><img id="pl-img" alt=""><div id="pl-name" class="pl-name"></div></div>`;
+                ov.addEventListener('click', () => ov.classList.remove('open'));
+                document.body.appendChild(ov);
+            }
+            document.getElementById('pl-img').src = src;
+            document.getElementById('pl-name').textContent = name || '';
+            ov.classList.add('open');
+        }
+        document.addEventListener('keydown', e => { if (e.key === 'Escape'){ const ov = document.getElementById('photo-lightbox'); if (ov) ov.classList.remove('open'); } });
 
         (async () => {
             const auth = await requireStudent();
