@@ -381,6 +381,26 @@ def update_student(user_id: str, body: UpdateStudentRequest, _=Depends(get_super
     return {"success": True, "updated": update_data}
 
 
+class StaffRoleReq(BaseModel):
+    job_title: Optional[str] = None
+
+
+@app.post("/admin/set-staff-role/{user_id}")
+def set_staff_role(user_id: str, body: StaffRoleReq, _=Depends(get_superadmin_user)):
+    """Super-admin sets a staff member's descriptive role (job_title), e.g.
+    "Biology & Physiology Teacher". Only applies to admin/superadmin accounts."""
+    target = (supabase.table("profiles").select("id, role").eq("id", user_id).limit(1).execute().data or [])
+    if not target:
+        raise HTTPException(status_code=404, detail="Staff member not found.")
+    if target[0].get("role") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=400, detail="Role can only be set on staff accounts.")
+    jt = (body.job_title or "").strip()
+    if len(jt) > 80:
+        raise HTTPException(status_code=400, detail="Role is too long (max 80 characters).")
+    supabase.table("profiles").update({"job_title": jt or None}).eq("id", user_id).execute()
+    return {"success": True, "job_title": jt or None}
+
+
 @app.delete("/admin/delete-student/{user_id}")
 def delete_student(user_id: str, _=Depends(get_superadmin_user)):
     """Permanently delete a student account."""
