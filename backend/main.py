@@ -1294,24 +1294,38 @@ def _require_active_student(authorization: str):
     return user
 
 
-@app.get("/student/staff-directory")
-def student_staff_directory(authorization: str = Header(...)):
-    """The teaching & supporting staff, for students to see who's who (name + photo).
-    Students can't read staff profiles directly (RLS), so this returns them via the
-    service role. Also used to show a teacher's photo beside the feedback they wrote."""
-    _require_active_student(authorization)
+def _staff_rows():
+    """All active staff, ordered super-admins first then by name, with their
+    public profile fields. Shared by the student and admin directories."""
     rows = (supabase.table("profiles")
-            .select("id, full_name, job_title, avatar_url, role, status")
+            .select("id, full_name, job_title, specialty, bio, education, avatar_url, role, status")
             .in_("role", ["admin", "superadmin"]).execute().data or [])
     rows = [r for r in rows if r.get("status") != "suspended"]
-    # Super-admins first, then by name — a stable, friendly order.
     rows.sort(key=lambda r: (0 if r.get("role") == "superadmin" else 1, (r.get("full_name") or "").lower()))
-    return {"staff": [{
+    return [{
         "id": r["id"],
         "full_name": r.get("full_name") or "Staff",
         "job_title": r.get("job_title"),
+        "specialty": r.get("specialty"),
+        "bio": r.get("bio"),
+        "education": r.get("education"),
         "avatar_url": r.get("avatar_url"),
-    } for r in rows]}
+    } for r in rows]
+
+
+@app.get("/student/staff-directory")
+def student_staff_directory(authorization: str = Header(...)):
+    """The teaching & supporting staff, for students to see who's who (photo + about).
+    Students can't read staff profiles directly (RLS), so this returns them via the
+    service role. Also used to show a teacher's photo beside the feedback they wrote."""
+    _require_active_student(authorization)
+    return {"staff": _staff_rows()}
+
+
+@app.get("/admin/staff-directory")
+def admin_staff_directory(_=Depends(get_admin_user)):
+    """The same staff profiles, for the admin-side Staff page (any admin can view)."""
+    return {"staff": _staff_rows()}
 
 
 def _verify_exam_access(user_id: str, exam_id: str):

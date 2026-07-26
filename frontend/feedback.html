@@ -34,18 +34,49 @@
         function staffAvatar(id, name, small){
             const s = (id && STAFF[id]) || null;
             const nm = (s && s.full_name) || name || 'Staff';
-            const cls = 'mini-ava' + (small ? ' sm' : '');
+            const cls = 'mini-ava' + (small ? ' sm' : '') + (s ? ' clickable' : '');
+            const sid = s ? ` data-staff="${esc(id)}"` : '';
             if (s && s.avatar_url){
-                return `<span class="${cls} has-photo" data-name="${esc(nm)}" data-full="${esc(s.avatar_url)}"><img src="${esc(s.avatar_url)}" alt="" loading="lazy" onerror="this.parentNode.classList.add('is-fallback');this.remove();"></span>`;
+                return `<span class="${cls} has-photo"${sid} data-name="${esc(nm)}" data-full="${esc(s.avatar_url)}"><img src="${esc(s.avatar_url)}" alt="" loading="lazy" onerror="this.parentNode.classList.add('is-fallback');this.remove();"></span>`;
             }
-            return `<span class="${cls} is-fallback" data-initials="${esc(initials(nm))}"></span>`;
+            return `<span class="${cls} is-fallback"${sid} data-initials="${esc(initials(nm))}"></span>`;
         }
 
-        // Click any staff photo to see it enlarged ("ah, that's who this is").
+        // Click a staff member (roster chip or their avatar) to open their profile card.
         document.addEventListener('click', e => {
+            const holder = e.target.closest('[data-staff]');
+            if (holder && STAFF[holder.dataset.staff]) { openStaffProfile(holder.dataset.staff); return; }
+            // A photo with no staff profile (unknown author) just enlarges.
             const ava = e.target.closest('.mini-ava.has-photo');
             if (ava && ava.dataset.full) openPhoto(ava.dataset.full, ava.dataset.name);
         });
+
+        // Full profile card: photo, role, specialty, bio, education.
+        function openStaffProfile(id){
+            const s = STAFF[id]; if (!s) return;
+            const big = s.avatar_url
+                ? `<span class="sp-photo has-photo" data-full="${esc(s.avatar_url)}" data-name="${esc(s.full_name)}"><img src="${esc(s.avatar_url)}" alt=""></span>`
+                : `<span class="sp-photo is-fallback" data-initials="${esc(initials(s.full_name))}"></span>`;
+            const line = (k, v) => v ? `<div class="sp-line"><span class="k">${k}</span><span>${esc(v)}</span></div>` : '';
+            const bio = s.bio ? `<p class="sp-bio">${esc(s.bio)}</p>` : '';
+            const details = (s.specialty || s.education) ? `<div class="sp-lines">${line('Specialty', s.specialty)}${line('Education', s.education)}</div>` : '';
+            const empty = (!s.bio && !s.specialty && !s.education) ? `<p class="sp-bio" style="color:var(--text-muted);">No profile details yet.</p>` : '';
+            let ov = document.getElementById('staff-profile');
+            if (!ov){
+                ov = document.createElement('div');
+                ov.id = 'staff-profile';
+                ov.className = 'sp-overlay';
+                ov.addEventListener('click', e => { if (e.target === ov) ov.classList.remove('open'); });
+                document.body.appendChild(ov);
+            }
+            ov.innerHTML = `<div class="sp-card">
+                <button class="sp-close" onclick="document.getElementById('staff-profile').classList.remove('open')" title="Close">&times;</button>
+                <div class="sp-head">${big}<div><div class="sp-name">${esc(s.full_name)}</div>${s.job_title ? `<div class="sp-role">${esc(s.job_title)}</div>` : ''}</div></div>
+                ${bio}${details}${empty}
+            </div>`;
+            ov.classList.add('open');
+        }
+
         function openPhoto(src, name){
             let ov = document.getElementById('photo-lightbox');
             if (!ov){
@@ -60,7 +91,16 @@
             document.getElementById('pl-name').textContent = name || '';
             ov.classList.add('open');
         }
-        document.addEventListener('keydown', e => { if (e.key === 'Escape'){ const ov = document.getElementById('photo-lightbox'); if (ov) ov.classList.remove('open'); } });
+        // Inside the profile card, clicking the photo enlarges it.
+        document.addEventListener('click', e => {
+            const ph = e.target.closest('#staff-profile .sp-photo.has-photo');
+            if (ph && ph.dataset.full){ e.stopPropagation(); openPhoto(ph.dataset.full, ph.dataset.name); }
+        });
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape'){
+                ['photo-lightbox','staff-profile'].forEach(id => { const ov = document.getElementById(id); if (ov) ov.classList.remove('open'); });
+            }
+        });
 
         (async () => {
             const auth = await requireStudent();
@@ -82,10 +122,10 @@
                 const r = await apiRequest('GET', '/student/staff-directory');
                 const staff = (r && r.staff) || [];
                 STAFF = {};
-                staff.forEach(s => { STAFF[s.id] = { full_name: s.full_name, avatar_url: s.avatar_url, job_title: s.job_title }; });
+                staff.forEach(s => { STAFF[s.id] = s; });
                 if (!staff.length) { box.innerHTML = ''; return; }
                 const chips = staff.map(s => `
-                    <span class="staff-chip">${staffAvatar(s.id, s.full_name, false)}<span class="who"><span class="nm">${esc(s.full_name)}</span>${s.job_title ? `<span class="role">${esc(s.job_title)}</span>` : ''}</span></span>`).join('');
+                    <span class="staff-chip" data-staff="${s.id}" title="View profile">${staffAvatar(s.id, s.full_name, false)}<span class="who"><span class="nm">${esc(s.full_name)}</span>${s.job_title ? `<span class="role">${esc(s.job_title)}</span>` : ''}</span></span>`).join('');
                 box.innerHTML = `
                     <div class="section">
                         <div class="att-card">
