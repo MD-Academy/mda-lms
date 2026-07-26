@@ -27,6 +27,19 @@
         let NEW_NOTES = new Set();     // feedback-note ids that are still unread
         const COURSE_NAMES = {};
         let STUDENT_NAME = 'You';
+        let STAFF = {};                // staff id -> {full_name, avatar_url}
+
+        function initials(name){ return (name || '?').trim().split(/\s+/).map(w => w[0]).slice(0,2).join('').toUpperCase() || '?'; }
+        // A round avatar for a staff member: photo if we have it, else initials.
+        function staffAvatar(id, name, small){
+            const s = (id && STAFF[id]) || null;
+            const nm = (s && s.full_name) || name || 'Staff';
+            const cls = 'mini-ava' + (small ? ' sm' : '');
+            if (s && s.avatar_url){
+                return `<span class="${cls}" data-initials="${esc(initials(nm))}"><img src="${esc(s.avatar_url)}" alt="" loading="lazy" onerror="this.parentNode.classList.add('is-fallback');this.remove();"></span>`;
+            }
+            return `<span class="${cls} is-fallback" data-initials="${esc(initials(nm))}"></span>`;
+        }
 
         (async () => {
             const auth = await requireStudent();
@@ -34,9 +47,37 @@
             STUDENT_NAME = (auth.profile && auth.profile.full_name) || 'You';
             renderLayout('feedback', 'Feedback from Teachers', 'What your teachers have written for you', auth.profile);
 
-            document.getElementById('page-content').innerHTML = `<div id="box"><div class="loader">Loading your feedback…</div></div>`;
+            document.getElementById('page-content').innerHTML = `
+                <div id="staff-box"></div>
+                <div id="box"><div class="loader">Loading your feedback…</div></div>`;
+            await loadStaff();   // so teacher photos are ready before the feedback renders
             await loadPage();
         })();
+
+        // The teaching & supporting staff — name + photo, so students know who's who.
+        async function loadStaff(){
+            const box = document.getElementById('staff-box');
+            try {
+                const r = await apiRequest('GET', '/student/staff-directory');
+                const staff = (r && r.staff) || [];
+                STAFF = {};
+                staff.forEach(s => { STAFF[s.id] = { full_name: s.full_name, avatar_url: s.avatar_url }; });
+                if (!staff.length) { box.innerHTML = ''; return; }
+                const chips = staff.map(s => `
+                    <span class="staff-chip">${staffAvatar(s.id, s.full_name, false)}<span class="nm">${esc(s.full_name)}</span></span>`).join('');
+                box.innerHTML = `
+                    <div class="section">
+                        <div class="att-card">
+                            <div style="font-weight:700;color:var(--navy-800);font-size:15px;">Your Teaching &amp; Supporting Staff</div>
+                            <div style="font-size:12.5px;color:var(--text-muted);margin-top:3px;">The people here to help you through the programme.</div>
+                            <div class="staff-strip">${chips}</div>
+                        </div>
+                    </div>`;
+            } catch (e) {
+                console.error('[feedback] staff directory failed:', e);
+                box.innerHTML = '';   // never block the page over the roster
+            }
+        }
 
         async function loadPage(){
             const box = document.getElementById('box');
@@ -44,7 +85,7 @@
 
             // RLS returns only this student's own entries, and only the ones a teacher chose to share.
             const { data, count, error } = await db.from('student_notes')
-                .select('id, body, course_id, author_name, created_at', { count: 'exact' })
+                .select('id, body, course_id, author_id, author_name, created_at', { count: 'exact' })
                 .order('created_at', { ascending: false })
                 .range(from, to);
 
@@ -73,7 +114,7 @@
                 notes.forEach(n => { if (!readNoteSet.has(n.id)) NEW_NOTES.add(n.id); });
 
                 const { data: reps } = await db.from('student_note_replies')
-                    .select('id, note_id, author_role, author_name, body, created_at')
+                    .select('id, note_id, author_role, author_id, author_name, body, created_at')
                     .in('note_id', noteIds).order('created_at', { ascending: true });
                 (reps || []).forEach(r => { (REPLIES[r.note_id] = REPLIES[r.note_id] || []).push(r); });
 
@@ -107,6 +148,7 @@
                 return `
                 <div class="fb-note ${isNew ? 'fb-note-new' : ''}">
                     <div class="fb-note-head">
+                        ${staffAvatar(n.author_id, n.author_name, true)}
                         <strong>${esc(n.author_name || 'Your teacher')}</strong>
                         <span>· ${esc(fmtStamp(n.created_at))}${n.course_id && COURSE_NAMES[n.course_id] ? ' · about ' + esc(COURSE_NAMES[n.course_id]) : ''}</span>
                         ${isNew ? '<span class="fb-new-pill">New</span>' : ''}
@@ -166,6 +208,7 @@
                 const cls = mine ? 'reply-mine' : ('reply-in' + (isNew ? ' reply-new' : ''));
                 return `<div class="reply-row ${cls}">
                     <div class="reply-head">
+                        ${mine ? '' : staffAvatar(r.author_id, r.author_name, true)}
                         <strong>${mine ? 'You' : esc(r.author_name || 'Your teacher')}</strong>
                         <span>· ${esc(fmtStamp(r.created_at))}</span>
                         ${isNew ? '<span class="reply-new-pill">New</span>' : ''}

@@ -1274,6 +1274,25 @@ def _require_active_student(authorization: str):
     return user
 
 
+@app.get("/student/staff-directory")
+def student_staff_directory(authorization: str = Header(...)):
+    """The teaching & supporting staff, for students to see who's who (name + photo).
+    Students can't read staff profiles directly (RLS), so this returns them via the
+    service role. Also used to show a teacher's photo beside the feedback they wrote."""
+    _require_active_student(authorization)
+    rows = (supabase.table("profiles")
+            .select("id, full_name, avatar_url, role, status")
+            .in_("role", ["admin", "superadmin"]).execute().data or [])
+    rows = [r for r in rows if r.get("status") != "suspended"]
+    # Super-admins first, then by name — a stable, friendly order.
+    rows.sort(key=lambda r: (0 if r.get("role") == "superadmin" else 1, (r.get("full_name") or "").lower()))
+    return {"staff": [{
+        "id": r["id"],
+        "full_name": r.get("full_name") or "Staff",
+        "avatar_url": r.get("avatar_url"),
+    } for r in rows]}
+
+
 def _verify_exam_access(user_id: str, exam_id: str):
     ex = supabase.table("exams").select("id, title, description, type, pass_threshold, time_limit_minutes, max_attempts, is_visible").eq("id", exam_id).limit(1).execute().data
     if not ex or not ex[0].get("is_visible"):
