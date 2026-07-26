@@ -53,3 +53,11 @@ create policy snr_student_write on student_note_replies for insert with check (
            and n.visible_to_student = true
     )
 );
+
+-- ── Bell notifications ──
+-- Let BOTH sides track a reply as read on their own bell. notification_reads is
+-- keyed by the viewer (its student_id column is really "who saw it"), and staff
+-- can manage their own rows too, so the same table serves student and teacher.
+alter table notification_reads drop constraint if exists notification_reads_kind_check;
+alter table notification_reads add constraint notification_reads_kind_check
+    check (kind in ('announcement', 'schedule', 'feedback', 'reply'));

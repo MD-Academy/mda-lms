@@ -124,7 +124,11 @@
 
             // Only what the student actually saw counts as read. If they have more
             // unread further back, it stays on the bell until they page to it.
-            markSeen(notes.map(n => n.id));
+            markSeen('feedback', notes.map(n => n.id));
+            // Staff replies now on screen are read too, so their bell alerts clear.
+            const staffReplyIds = [];
+            Object.values(REPLIES).forEach(arr => arr.forEach(r => { if (r.author_role === 'staff') staffReplyIds.push(r.id); }));
+            markSeen('reply', staffReplyIds);
         }
 
         // The conversation under one feedback entry, plus the student's reply box.
@@ -209,28 +213,28 @@
             loadPage();
         }
 
-        // Mark the entries on screen as seen, so the bell count drops.
-        async function markSeen(ids){
-            if (!ids.length) return;
+        // Mark the entries on screen as seen (by kind), so the bell count drops.
+        async function markSeen(kind, ids){
+            if (!ids || !ids.length) return;
             try {
                 const { data: { session } } = await db.auth.getSession();
                 if (!session) return;
-                const rows = ids.map(id => ({ student_id: session.user.id, kind: 'feedback', ref_id: id }));
+                const rows = ids.map(id => ({ student_id: session.user.id, kind, ref_id: id }));
                 await db.from('notification_reads').upsert(rows, { onConflict: 'student_id,kind,ref_id' });
             } catch (e) { /* never block the page */ }
             // The bell loads on its own schedule, so drop these once it's ready
             // rather than assuming it already is.
-            dropFromBell(ids, 0);
+            dropFromBell(kind, ids, 0);
         }
 
-        function dropFromBell(ids, tries){
+        function dropFromBell(kind, ids, tries){
             if (typeof _notifUnread === 'undefined' || typeof _renderBell !== 'function') return;
             const seen = new Set(ids.map(String));
             const before = _notifUnread.length;
-            _notifUnread = _notifUnread.filter(n => !(n.kind === 'feedback' && seen.has(String(n.id))));
+            _notifUnread = _notifUnread.filter(n => !(n.kind === kind && seen.has(String(n.id))));
             if (before !== _notifUnread.length) { _renderBell(); return; }
             // Nothing matched yet — the bell may still be fetching. Try again briefly.
-            if (tries < 6) setTimeout(() => dropFromBell(ids, tries + 1), 500);
+            if (tries < 6) setTimeout(() => dropFromBell(kind, ids, tries + 1), 500);
         }
     </script>
 </body>
