@@ -170,6 +170,13 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 @keyframes fbNotePulse { 0%,100% { box-shadow: 0 0 0 3px rgba(251,146,60,.20); } 50% { box-shadow: 0 0 0 6px rgba(234,88,12,.42); } }
 @media (prefers-reduced-motion: reduce) { .fb-note-new { animation: none; } }
 
+/* A message the student started (distinct from amber feedback) */
+.msg-note { background: #eef4ff; border: 1px solid #d6e4ff; border-left: 4px solid #2563eb; border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+
+/* Contact button area in the profile card */
+.sp-contact { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); display: flex; }
+.sp-contact .btn { width: 100%; justify-content: center; }
+
 /* ── Reply bubbles in a feedback thread ── */
 .reply-row { border-radius: 11px; padding: 10px 13px; margin-top: 9px; border: 1px solid; position: relative; }
 .reply-in  { background: #f0fdf4; border-color: #bbf7d0; margin-right: 20px; }      /* a reply you received */

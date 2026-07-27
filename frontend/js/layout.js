@@ -3,7 +3,7 @@
 const NAV_ITEMS = [
     { id: 'dashboard', label: 'Dashboard', href: 'dashboard.html', icon: '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>' },
     { id: 'courses', label: 'My Courses', href: 'courses.html', icon: '<path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/>' },
-    { id: 'feedback', label: 'Feedback from Teachers', href: 'feedback.html', icon: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>' },
+    { id: 'feedback', label: 'Messages', href: 'feedback.html', icon: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>' },
     { id: 'recordings', label: 'Zoom Recordings', href: 'recordings.html', icon: '<polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>' },
     { id: 'booklets', label: 'Booklets', href: 'booklets.html', icon: '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/><line x1="12" y1="7" x2="12" y2="21"/>' },
     { id: 'exams', label: 'Exams', href: 'exams.html', icon: '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>' },
@@ -122,7 +122,7 @@ async function _initNotifications() {
             db.from('announcements').select('id, title, posted_at, course_id').order('posted_at', { ascending: false }).limit(200),
             db.from('notification_reads').select('kind, ref_id').eq('student_id', _notifUid),
             // Feedback a teacher wrote for this student (RLS returns only their own, shared ones).
-            db.from('student_notes').select('id, body, author_name, created_at').order('created_at', { ascending: false }).limit(100),
+            db.from('student_notes').select('id, body, author_name, initiated_by, created_at').order('created_at', { ascending: false }).limit(100),
             // A teacher's reply in one of those feedback threads (RLS scopes to the student's own notes).
             db.from('student_note_replies').select('id, author_role, author_name, body, created_at').eq('author_role', 'staff').order('created_at', { ascending: false }).limit(100)
         ]);
@@ -139,6 +139,7 @@ async function _initNotifications() {
         anns.forEach(a => { if (!readSet.has(`announcement:${a.id}`)) _notifUnread.push({ kind: 'announcement', id: a.id, title: a.title, sub: 'Announcement · ' + _notifDate(a.posted_at), date: a.posted_at }); });
         sched.forEach(s => { if (!readSet.has(`schedule:${s.id}`)) _notifUnread.push({ kind: 'schedule', id: s.id, title: s.topic, sub: 'Upcoming class · ' + _notifDate(s.entry_date), date: s.entry_date }); });
         (fbRes.data || []).forEach(f => {
+            if (f.initiated_by === 'student') return;   // your own message isn't "new feedback"
             if (readSet.has(`feedback:${f.id}`)) return;
             const snip = String(f.body || '').replace(/\s+/g, ' ').trim();
             _notifUnread.push({

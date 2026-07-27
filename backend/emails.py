@@ -372,6 +372,23 @@ def feedback_reply_to_student_email(student_name: str, teacher_name: str, reply_
     return (subject, _wrap("💬 Reply from your teacher", body))
 
 
+def student_contact_email(staff_name: str, student_name: str, message_text: str):
+    """Returns (subject, html) for a staff member: a student has messaged them."""
+    safe = _esc(message_text).replace("\n", "<br>")
+    first = (staff_name or "there").strip().split()[0] if staff_name else "there"
+    body = f"""\
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">Dear {_esc(first)},</p>
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">
+        <strong>{_esc(student_name or 'A student')}</strong> has sent you a message:</p>
+      <div style="background:#f7f9fc;border:1px solid #e6ecf4;border-left:4px solid #2563eb;border-radius:10px;padding:16px 18px;margin:6px 0 4px;">
+        <div style="font-size:15px;line-height:1.7;color:#334155;">{safe}</div>
+      </div>
+      {_button("Open in the admin portal", "https://admin.medicaldoctor-studies.com/students.html")}
+      <p style="margin:0;font-size:12px;color:#94a3b8;">Open the student's <strong>Feedback</strong> to read and reply — your reply reaches them in their portal.</p>"""
+    subject = f"{student_name or 'A student'} sent you a message"
+    return (subject, _wrap("💬 A student messaged you", body))
+
+
 def ticket_opened_email(student_name: str, title: str, body_text: str):
     """Returns (subject, html) for the office: a student opened a new ticket."""
     safe_body = _esc(body_text).replace("\n", "<br>")

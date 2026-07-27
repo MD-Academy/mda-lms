@@ -4,10 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/png" href="assets/images/favicon.png?v=1">
-    <title>Medical Doctor Academy — Feedback from Teachers</title>
+    <title>Medical Doctor Academy — Messages</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/student.css">
+    <link rel="stylesheet" href="css/student.css?v=1">
 </head>
 <body>
     <div class="layout" id="app-layout"></div>
@@ -73,8 +73,58 @@
                 <button class="sp-close" onclick="document.getElementById('staff-profile').classList.remove('open')" title="Close">&times;</button>
                 <div class="sp-head">${big}<div><div class="sp-name">${esc(s.full_name)}</div>${s.job_title ? `<div class="sp-role">${esc(s.job_title)}</div>` : ''}</div></div>
                 ${bio}${details}${empty}
+                <div class="sp-contact">
+                    <button class="btn btn-primary" onclick="startContact('${esc(id)}')">✉️ Message ${esc((s.full_name||'').split(' ')[0] || 'them')}</button>
+                </div>
             </div>`;
             ov.classList.add('open');
+        }
+
+        // Compose a new message to a staff member.
+        function startContact(id){
+            const s = STAFF[id]; if (!s) return;
+            let ov = document.getElementById('contact-modal');
+            if (!ov){
+                ov = document.createElement('div');
+                ov.id = 'contact-modal';
+                ov.className = 'sp-overlay';
+                ov.addEventListener('click', e => { if (e.target === ov) ov.classList.remove('open'); });
+                document.body.appendChild(ov);
+            }
+            ov.innerHTML = `<div class="sp-card">
+                <button class="sp-close" onclick="document.getElementById('contact-modal').classList.remove('open')" title="Close">&times;</button>
+                <div style="font-weight:700;color:var(--navy-800);font-size:17px;">Message ${esc(s.full_name)}</div>
+                <div style="font-size:12.5px;color:var(--text-muted);margin:4px 0 14px;">${s.job_title ? esc(s.job_title) + ' · ' : ''}They'll get your message and can reply — you'll see it here and in your bell.</div>
+                <textarea id="contact-body" rows="5" maxlength="3000" placeholder="Write your message…" style="width:100%;padding:11px 13px;border:1px solid var(--border);border-radius:10px;font-family:inherit;font-size:14px;resize:vertical;"></textarea>
+                <div style="display:flex;align-items:center;gap:10px;margin-top:12px;">
+                    <button class="btn btn-primary" id="contact-send" onclick="sendContact('${esc(id)}', this)">Send message</button>
+                    <span id="contact-msg" style="font-size:12.5px;"></span>
+                </div>
+            </div>`;
+            const sp = document.getElementById('staff-profile'); if (sp) sp.classList.remove('open');
+            ov.classList.add('open');
+            setTimeout(() => { const t = document.getElementById('contact-body'); if (t) t.focus(); }, 60);
+        }
+
+        async function sendContact(id, btn){
+            const ta = document.getElementById('contact-body');
+            const msg = document.getElementById('contact-msg');
+            const text = (ta.value || '').trim();
+            msg.textContent = '';
+            if (!text){ msg.style.color = 'var(--red)'; msg.textContent = 'Write your message first.'; return; }
+            btn.disabled = true; const label = btn.textContent; btn.textContent = 'Sending…';
+            try {
+                const r = await apiRequest('POST', '/student/contact-staff', { staff_id: id, body: text });
+                msg.style.color = 'var(--green)';
+                msg.textContent = r && r.emailed ? 'Sent — they\'ve been emailed ✓' : 'Sent ✓';
+                setTimeout(() => {
+                    const ov = document.getElementById('contact-modal'); if (ov) ov.classList.remove('open');
+                    FB_PAGE = 1; loadPage();   // show the new conversation at the top
+                }, 900);
+            } catch (e) {
+                msg.style.color = 'var(--red)'; msg.textContent = e.message || 'Could not send. Please try again.';
+                btn.disabled = false; btn.textContent = label;
+            }
         }
 
         function openPhoto(src, name){
@@ -106,11 +156,11 @@
             const auth = await requireStudent();
             if (!auth) return;
             STUDENT_NAME = (auth.profile && auth.profile.full_name) || 'You';
-            renderLayout('feedback', 'Feedback from Teachers', 'What your teachers have written for you', auth.profile);
+            renderLayout('feedback', 'Messages', 'Feedback from your teachers, and your messages to staff', auth.profile);
 
             document.getElementById('page-content').innerHTML = `
                 <div id="staff-box"></div>
-                <div id="box"><div class="loader">Loading your feedback…</div></div>`;
+                <div id="box"><div class="loader">Loading your messages…</div></div>`;
             await loadStaff();   // so teacher photos are ready before the feedback renders
             await loadPage();
         })();
@@ -130,7 +180,7 @@
                     <div class="section">
                         <div class="att-card">
                             <div style="font-weight:700;color:var(--navy-800);font-size:15px;">Your Teaching &amp; Supporting Staff</div>
-                            <div style="font-size:12.5px;color:var(--text-muted);margin-top:3px;">The people here to help you through the programme.</div>
+                            <div style="font-size:12.5px;color:var(--text-muted);margin-top:3px;">The people here to help you through the programme. Tap anyone to see their profile and <strong>message them</strong>.</div>
                             <div class="staff-strip">${chips}</div>
                         </div>
                     </div>`;
@@ -146,7 +196,7 @@
 
             // RLS returns only this student's own entries, and only the ones a teacher chose to share.
             const { data, count, error } = await db.from('student_notes')
-                .select('id, body, course_id, author_id, author_name, created_at', { count: 'exact' })
+                .select('id, body, course_id, author_id, author_name, initiated_by, staff_id, staff_name, created_at', { count: 'exact' })
                 .order('created_at', { ascending: false })
                 .range(from, to);
 
@@ -172,7 +222,8 @@
                 const { data: readNotes } = await db.from('notification_reads')
                     .select('ref_id').eq('student_id', myId).eq('kind', 'feedback').in('ref_id', noteIds);
                 const readNoteSet = new Set((readNotes || []).map(r => r.ref_id));
-                notes.forEach(n => { if (!readNoteSet.has(n.id)) NEW_NOTES.add(n.id); });
+                // Only feedback a teacher wrote can be "new" to the student — not their own messages.
+                notes.forEach(n => { if (n.initiated_by !== 'student' && !readNoteSet.has(n.id)) NEW_NOTES.add(n.id); });
 
                 const { data: reps } = await db.from('student_note_replies')
                     .select('id, note_id, author_role, author_id, author_name, body, created_at')
@@ -191,8 +242,8 @@
 
             if (FB_TOTAL === 0) {
                 box.innerHTML = `<div class="empty-state">
-                    <h3>No feedback yet</h3>
-                    <p>When one of your teachers writes feedback for you, it appears here — and you'll get a notification in the bell at the top of the page.</p>
+                    <h3>No messages yet</h3>
+                    <p>Feedback your teachers write appears here — and you can message any staff member from the list above. You'll get a notification in the bell whenever there's something new.</p>
                 </div>`;
                 return;
             }
@@ -205,6 +256,19 @@
             }
 
             const rows = notes.map(n => {
+                if (n.initiated_by === 'student') {
+                    // A message you started with a staff member.
+                    return `
+                    <div class="msg-note">
+                        <div class="fb-note-head">
+                            ${staffAvatar(n.staff_id, n.staff_name, true)}
+                            <strong>You → ${esc(n.staff_name || 'Staff')}</strong>
+                            <span>· ${esc(fmtStamp(n.created_at))}</span>
+                        </div>
+                        <div class="fb-note-body">${esc(n.body)}</div>
+                        ${threadHtml(n.id)}
+                    </div>`;
+                }
                 const isNew = NEW_NOTES.has(n.id);
                 return `
                 <div class="fb-note ${isNew ? 'fb-note-new' : ''}">
@@ -240,11 +304,11 @@
 
             box.innerHTML = `
                 <div class="section">
-                    <div class="section-title">💬 Feedback from Your Teachers</div>
+                    <div class="section-title">💬 Your Messages</div>
                     <div class="att-card">
                         <p style="font-size:13px;color:var(--text-muted);margin:-4px 0 16px;line-height:1.55;">
-                            Personal feedback your teachers have written for you — about how you're progressing, what to work on,
-                            or advice after a class. The newest is first, and earlier feedback stays here so you can look back on it.
+                            Feedback your teachers have written for you, and messages you've sent staff. Newest first — each is its own
+                            conversation you can reply to. To start a new message, tap a staff member above.
                         </p>
                         <div style="margin-top:16px;">${rows}</div>
                         ${pager}

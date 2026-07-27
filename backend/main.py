@@ -1328,6 +1328,56 @@ def admin_staff_directory(_=Depends(get_admin_user)):
     return {"staff": _staff_rows()}
 
 
+class ContactStaffReq(BaseModel):
+    staff_id: str
+    body: str
+
+
+@app.post("/student/contact-staff")
+def student_contact_staff(body: ContactStaffReq, authorization: str = Header(...)):
+    """A student starts a conversation with a specific staff member. Creates a
+    thread (student_notes row, initiated_by='student') the staff member sees in
+    admin and can reply to — same engine as feedback. Emails the staff member."""
+    user = _require_active_student(authorization)
+    text = (body.body or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Your message can't be empty.")
+    if len(text) > 3000:
+        raise HTTPException(status_code=400, detail="Your message is too long.")
+
+    staff = (supabase.table("profiles").select("id, full_name, email, role, status")
+             .eq("id", body.staff_id).limit(1).execute().data or [])
+    if not staff or staff[0].get("role") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=404, detail="Staff member not found.")
+    s = staff[0]
+
+    me = (supabase.table("profiles").select("full_name").eq("id", user.id).limit(1).execute().data or [{}])[0]
+    student_name = me.get("full_name") or "A student"
+
+    ins = supabase.table("student_notes").insert({
+        "student_id": user.id,
+        "staff_id": s["id"],
+        "staff_name": s.get("full_name"),
+        "author_id": user.id,
+        "author_name": student_name,
+        "initiated_by": "student",
+        "body": text,
+        "visible_to_student": True,
+    }).select("id").single().execute()
+    note_id = ins.data["id"] if ins.data else None
+
+    # Email the staff member (best-effort; the message is already saved).
+    emailed = False
+    try:
+        if s.get("email") and emails.is_valid_email(s["email"]) and s.get("status") != "suspended":
+            subject, html = emails.student_contact_email(s.get("full_name"), student_name, text)
+            emailed = emails.send_email(s["email"], subject, html)
+    except Exception as e:
+        logger.error("Contact-staff notification failed: %s", e)
+
+    return {"success": True, "note_id": note_id, "emailed": emailed}
+
+
 def _verify_exam_access(user_id: str, exam_id: str):
     ex = supabase.table("exams").select("id, title, description, type, pass_threshold, time_limit_minutes, max_attempts, is_visible").eq("id", exam_id).limit(1).execute().data
     if not ex or not ex[0].get("is_visible"):
