@@ -44,6 +44,13 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
     border-radius: 10px; color: rgba(255,255,255,0.7); text-decoration: none;
     font-size: 14px; font-weight: 500; transition: all 0.15s; font-family: 'Inter', sans-serif;
 }
+.nav-badge {
+    margin-left: auto; flex-shrink: 0; min-width: 20px; height: 20px; padding: 0 7px;
+    border-radius: 999px; background: var(--crimson); color: #fff; font-size: 11px; font-weight: 800;
+    display: inline-flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 5px rgba(185,28,92,.5);
+}
+.nav-item.active .nav-badge { background: #fff; color: var(--navy-800); box-shadow: none; }
 .nav-item svg { width: 19px; height: 19px; flex-shrink: 0; }
 .nav-item:hover { background: rgba(255,255,255,0.08); color: #fff; }
 .nav-item.active { background: linear-gradient(135deg, var(--blue-500), var(--blue-400)); color: #fff; box-shadow: 0 4px 12px rgba(37,99,235,0.35); }

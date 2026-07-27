@@ -40,6 +40,7 @@ function renderLayout(activeId, pageTitle, pageSub, profile) {
         <a href="${item.href}" class="nav-item ${item.id === activeId ? 'active' : ''}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${item.icon}</svg>
             ${item.label}
+            ${item.id === 'feedback' ? '<span class="nav-badge" id="nav-badge-feedback" style="display:none;">0</span>' : ''}
         </a>`).join('');
 
     document.getElementById('app-layout').innerHTML = `
@@ -165,12 +166,23 @@ async function _initNotifications() {
 
 function _renderBell() {
     const badge = document.getElementById('notif-badge');
-    if (!badge) return;
-    const n = _notifUnread.length;
-    badge.textContent = n > 9 ? '9+' : String(n);
-    badge.style.display = n ? 'block' : 'none';
-    const overlay = document.getElementById('notif-overlay');
-    if (overlay && overlay.classList.contains('open')) _renderNotifList();
+    if (badge) {
+        const n = _notifUnread.length;
+        badge.textContent = n > 9 ? '9+' : String(n);
+        badge.style.display = n ? 'block' : 'none';
+        const overlay = document.getElementById('notif-overlay');
+        if (overlay && overlay.classList.contains('open')) _renderNotifList();
+    }
+    _renderMessagesNavBadge();
+}
+
+// "N unread" beside Messages in the sidebar — counts feedback + teacher replies.
+function _renderMessagesNavBadge() {
+    const el = document.getElementById('nav-badge-feedback');
+    if (!el) return;
+    const n = _notifUnread.filter(x => x.kind === 'feedback' || x.kind === 'reply').length;
+    el.textContent = n > 9 ? '9+' : String(n);
+    el.style.display = n ? 'inline-flex' : 'none';
 }
 
 function _ensureNotifModal() {
