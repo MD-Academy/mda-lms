@@ -1363,8 +1363,8 @@ def student_contact_staff(body: ContactStaffReq, authorization: str = Header(...
         "initiated_by": "student",
         "body": text,
         "visible_to_student": True,
-    }).select("id").single().execute()
-    note_id = ins.data["id"] if ins.data else None
+    }).execute()
+    note_id = ins.data[0]["id"] if ins.data else None
 
     # Email the staff member (best-effort; the message is already saved).
     emailed = False
