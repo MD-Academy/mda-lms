@@ -1354,17 +1354,32 @@ def student_contact_staff(body: ContactStaffReq, authorization: str = Header(...
     me = (supabase.table("profiles").select("full_name").eq("id", user.id).limit(1).execute().data or [{}])[0]
     student_name = me.get("full_name") or "A student"
 
-    ins = supabase.table("student_notes").insert({
-        "student_id": user.id,
-        "staff_id": s["id"],
-        "staff_name": s.get("full_name"),
-        "author_id": user.id,
-        "author_name": student_name,
-        "initiated_by": "student",
-        "body": text,
-        "visible_to_student": True,
-    }).execute()
-    note_id = ins.data[0]["id"] if ins.data else None
+    # If the student already has a conversation they started with this teacher,
+    # continue it (add a reply) instead of opening a new blank thread. A fresh
+    # thread is created only when there's no previous one.
+    existing = (supabase.table("student_notes").select("id")
+                .eq("student_id", user.id).eq("staff_id", s["id"]).eq("initiated_by", "student")
+                .order("created_at", desc=True).limit(1).execute().data or [])
+    continued = bool(existing)
+
+    if continued:
+        note_id = existing[0]["id"]
+        supabase.table("student_note_replies").insert({
+            "note_id": note_id, "author_role": "student",
+            "author_id": user.id, "author_name": student_name, "body": text,
+        }).execute()
+    else:
+        ins = supabase.table("student_notes").insert({
+            "student_id": user.id,
+            "staff_id": s["id"],
+            "staff_name": s.get("full_name"),
+            "author_id": user.id,
+            "author_name": student_name,
+            "initiated_by": "student",
+            "body": text,
+            "visible_to_student": True,
+        }).execute()
+        note_id = ins.data[0]["id"] if ins.data else None
 
     # Email the staff member (best-effort; the message is already saved).
     emailed = False
@@ -1375,7 +1390,7 @@ def student_contact_staff(body: ContactStaffReq, authorization: str = Header(...
     except Exception as e:
         logger.error("Contact-staff notification failed: %s", e)
 
-    return {"success": True, "note_id": note_id, "emailed": emailed}
+    return {"success": True, "note_id": note_id, "continued": continued, "emailed": emailed}
 
 
 def _verify_exam_access(user_id: str, exam_id: str):

@@ -115,11 +115,14 @@
             btn.disabled = true; const label = btn.textContent; btn.textContent = 'Sending…';
             try {
                 const r = await apiRequest('POST', '/student/contact-staff', { staff_id: id, body: text });
+                const targetId = r && r.note_id;
                 msg.style.color = 'var(--green)';
-                msg.textContent = r && r.emailed ? 'Sent — they\'ve been emailed ✓' : 'Sent ✓';
-                setTimeout(() => {
+                msg.textContent = (r && r.continued) ? 'Added to your conversation ✓' : (r && r.emailed ? 'Sent — they\'ve been emailed ✓' : 'Sent ✓');
+                setTimeout(async () => {
                     const ov = document.getElementById('contact-modal'); if (ov) ov.classList.remove('open');
-                    FB_PAGE = 1; loadPage();   // show the new conversation at the top
+                    FB_PAGE = 1; await loadPage();
+                    // Jump to the conversation so the student sees their message land.
+                    if (targetId){ const el = document.getElementById('note-' + targetId); if (el) el.scrollIntoView({ behavior:'smooth', block:'center' }); }
                 }, 900);
             } catch (e) {
                 msg.style.color = 'var(--red)'; msg.textContent = e.message || 'Could not send. Please try again.';
@@ -259,7 +262,7 @@
                 if (n.initiated_by === 'student') {
                     // A message you started with a staff member.
                     return `
-                    <div class="msg-note">
+                    <div class="msg-note" id="note-${n.id}">
                         <div class="fb-note-head">
                             ${staffAvatar(n.staff_id, n.staff_name, true)}
                             <strong>You → ${esc(n.staff_name || 'Staff')}</strong>
@@ -271,7 +274,7 @@
                 }
                 const isNew = NEW_NOTES.has(n.id);
                 return `
-                <div class="fb-note ${isNew ? 'fb-note-new' : ''}">
+                <div class="fb-note ${isNew ? 'fb-note-new' : ''}" id="note-${n.id}">
                     <div class="fb-note-head">
                         ${staffAvatar(n.author_id, n.author_name, true)}
                         <strong>${esc(n.author_name || 'Your teacher')}</strong>
