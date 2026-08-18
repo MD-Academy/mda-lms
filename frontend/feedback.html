@@ -27,9 +27,19 @@
         let NEW_NOTES = new Set();     // feedback-note ids that are still unread
         const COURSE_NAMES = {};
         let STUDENT_NAME = 'You';
+        let STUDENT_AVATAR = null;     // the signed-in student's own photo
         let STAFF = {};                // staff id -> {full_name, avatar_url}
 
         function initials(name){ return (name || '?').trim().split(/\s+/).map(w => w[0]).slice(0,2).join('').toUpperCase() || '?'; }
+        // The student's own round avatar (photo or initials) — shown when they speak.
+        function meAvatar(small){
+            const cls = 'mini-ava' + (small ? ' sm' : '');
+            const ini = esc(initials(STUDENT_NAME));
+            if (STUDENT_AVATAR){
+                return `<span class="${cls}" data-initials="${ini}"><img src="${esc(STUDENT_AVATAR)}" alt="" onerror="this.parentNode.classList.add('is-fallback');this.remove();"></span>`;
+            }
+            return `<span class="${cls} is-fallback" data-initials="${ini}"></span>`;
+        }
         // A round avatar for a staff member: photo if we have it, else initials.
         function staffAvatar(id, name, small){
             const s = (id && STAFF[id]) || null;
@@ -159,6 +169,7 @@
             const auth = await requireStudent();
             if (!auth) return;
             STUDENT_NAME = (auth.profile && auth.profile.full_name) || 'You';
+            STUDENT_AVATAR = (auth.profile && auth.profile.avatar_url) || null;
             renderLayout('feedback', 'Messages', 'Feedback from your teachers, and your messages to staff', auth.profile);
 
             document.getElementById('page-content').innerHTML = `
@@ -264,7 +275,7 @@
                     return `
                     <div class="msg-note" id="note-${n.id}">
                         <div class="fb-note-head">
-                            ${staffAvatar(n.staff_id, n.staff_name, true)}
+                            ${meAvatar(true)}
                             <strong>You → ${esc(n.staff_name || 'Staff')}</strong>
                             <span>· ${esc(fmtStamp(n.created_at))}</span>
                         </div>
@@ -336,7 +347,7 @@
                 const cls = mine ? 'reply-mine' : ('reply-in' + (isNew ? ' reply-new' : ''));
                 return `<div class="reply-row ${cls}">
                     <div class="reply-head">
-                        ${mine ? '' : staffAvatar(r.author_id, r.author_name, true)}
+                        ${mine ? meAvatar(true) : staffAvatar(r.author_id, r.author_name, true)}
                         <strong>${mine ? 'You' : esc(r.author_name || 'Your teacher')}</strong>
                         <span>· ${esc(fmtStamp(r.created_at))}</span>
                         ${isNew ? '<span class="reply-new-pill">New</span>' : ''}
