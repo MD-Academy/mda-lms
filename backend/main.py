@@ -1095,6 +1095,145 @@ def get_signed_url(body: SignedUrlRequest, _=Depends(get_admin_user)):
         raise HTTPException(status_code=400, detail=f"Failed to generate signed URL: {str(e)}")
 
 
+class ImportQBankReq(BaseModel):
+    xml_base64: str
+
+
+def _qb_strip_html(s: str) -> str:
+    """Moodle wraps text in HTML — reduce it to clean plain text."""
+    import re, html as _html
+    if not s:
+        return ""
+    s = re.sub(r"(?i)<br\s*/?>", " ", s)
+    s = re.sub(r"(?i)</(p|div|li)>", " ", s)
+    s = re.sub(r"<[^>]+>", "", s)
+    s = _html.unescape(s).replace("\xa0", " ")
+    return re.sub(r"\s+", " ", s).strip()
+
+
+@app.post("/admin/import-question-bank")
+def import_question_bank(body: ImportQBankReq, _=Depends(get_superadmin_user)):
+    """Import a Moodle XML question export into the reusable question bank.
+    Keeps single-answer multiple-choice questions only; skips short-answer,
+    descriptions, and questions containing images. Text is stripped to plain
+    text. Idempotent-ish: a question whose exact text is already in the bank is
+    skipped, so re-importing the same file doesn't duplicate."""
+    import base64 as _b64
+    import xml.etree.ElementTree as ET
+
+    raw = (body.xml_base64 or "").strip()
+    if raw.lower().startswith("data:") and "," in raw:
+        raw = raw.split(",", 1)[1]
+    try:
+        xml_bytes = _b64.b64decode(raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Could not read the uploaded file.")
+    if not xml_bytes:
+        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+    if len(xml_bytes) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="That file is too large (max 20 MB).")
+    try:
+        root = ET.fromstring(xml_bytes)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"This doesn't look like a valid Moodle XML file: {e}")
+
+    counts = {"multichoice": 0, "imported": 0, "skipped_shortanswer": 0,
+              "skipped_image": 0, "skipped_unsupported": 0, "duplicates": 0}
+    parsed = []
+    current_category = None
+    seen_texts = set()   # de-dup within this file
+
+    def _raw_text(el):
+        t = el.find("text") if el is not None else None
+        return (t.text or "") if (t is not None and t.text) else ""
+
+    for q in root.findall("question"):
+        qtype = q.get("type")
+        if qtype == "category":
+            cat = _raw_text(q.find("category"))
+            if cat:
+                current_category = cat.split("/")[-1].strip() or current_category
+            continue
+        if qtype == "shortanswer":
+            counts["skipped_shortanswer"] += 1
+            continue
+        if qtype != "multichoice":
+            continue   # description etc. — not a question we import
+        counts["multichoice"] += 1
+
+        # Only single-correct MCQs (our quizzes/exams pick one answer).
+        if (q.findtext("single") or "").strip().lower() == "false":
+            counts["skipped_unsupported"] += 1
+            continue
+
+        qtext_raw = _raw_text(q.find("questiontext"))
+        answers_raw = [(_raw_text(a), a.get("fraction", "0")) for a in q.findall("answer")]
+
+        # Skip anything with an embedded image/file — text-only for v1.
+        blob = qtext_raw + " " + " ".join(t for t, _ in answers_raw)
+        if "<img" in blob.lower() or "@@pluginfile@@" in blob.lower() or q.find("file") is not None:
+            counts["skipped_image"] += 1
+            continue
+
+        options, fractions = [], []
+        for txt, frac in answers_raw:
+            clean = _qb_strip_html(txt)
+            if not clean:
+                continue
+            options.append(clean)
+            try:
+                fractions.append(float(frac))
+            except (TypeError, ValueError):
+                fractions.append(0.0)
+
+        question_text = _qb_strip_html(qtext_raw)
+        if not question_text or len(options) < 2 or not fractions or max(fractions) <= 0:
+            counts["skipped_unsupported"] += 1
+            continue
+
+        correct_index = fractions.index(max(fractions))
+
+        key = question_text.lower()
+        if key in seen_texts:
+            counts["duplicates"] += 1
+            continue
+        seen_texts.add(key)
+
+        parsed.append({
+            "category": current_category,
+            "question_text": question_text,
+            "options_json": options,
+            "correct_answer_index": correct_index,
+            "source": "moodle",
+        })
+
+    # De-dup against what's already in the bank (so re-import doesn't duplicate).
+    if parsed:
+        existing = set()
+        try:
+            rows = supabase.table("question_bank").select("question_text").execute().data or []
+            existing = {(r.get("question_text") or "").lower() for r in rows}
+        except Exception:
+            pass
+        fresh = []
+        for p in parsed:
+            if p["question_text"].lower() in existing:
+                counts["duplicates"] += 1
+            else:
+                fresh.append(p)
+        # Insert in chunks.
+        for i in range(0, len(fresh), 200):
+            chunk = fresh[i:i + 200]
+            try:
+                supabase.table("question_bank").insert(chunk).execute()
+                counts["imported"] += len(chunk)
+            except Exception as e:
+                logger.error("Question-bank insert failed: %s", e)
+                raise HTTPException(status_code=500, detail=f"Import failed while saving: {str(e)}")
+
+    return {"success": True, **counts}
+
+
 @app.post("/exams/import-pdf")
 def import_exam_pdf(body: ImportPdfRequest, _=Depends(get_admin_user)):
     """Read an existing multiple-choice exam PDF and extract its questions (and, where the
