@@ -422,6 +422,51 @@ def reset_password(user_id: str, _=Depends(get_superadmin_user)):
     return {"success": True, "new_password": new_password}
 
 
+@app.get("/admin/auth-email/{user_id}")
+def get_auth_email(user_id: str, _=Depends(get_superadmin_user)):
+    """The real sign-in email for a user, straight from auth (source of truth).
+    Lets a super-admin see exactly which email a colleague must log in with."""
+    try:
+        res = supabase.auth.admin.get_user_by_id(user_id)
+        u = getattr(res, "user", None)
+        return {"email": getattr(u, "email", None) if u else None}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not read the account: {str(e)}")
+
+
+class UpdateUserEmailReq(BaseModel):
+    email: str
+    full_name: Optional[str] = None
+
+
+@app.post("/admin/update-user-email/{user_id}")
+def update_user_email(user_id: str, body: UpdateUserEmailReq, _=Depends(get_superadmin_user)):
+    """Super-admin changes a user's LOGIN email (auth) — and keeps profiles.email in
+    sync. Works for admins and students. The email is auto-confirmed so they can log
+    in immediately with the new address."""
+    new_email = (body.email or "").strip().lower()
+    if not emails.is_valid_email(new_email):
+        raise HTTPException(status_code=400, detail="That doesn't look like a valid email address.")
+    try:
+        supabase.auth.admin.update_user_by_id(user_id, {"email": new_email, "email_confirm": True})
+    except Exception as e:
+        msg = str(e)
+        if "already" in msg.lower() or "registered" in msg.lower() or "duplicate" in msg.lower():
+            raise HTTPException(status_code=400, detail="That email is already used by another account.")
+        raise HTTPException(status_code=400, detail=f"Could not update the login email: {msg}")
+
+    patch = {"email": new_email}
+    if body.full_name is not None and body.full_name.strip():
+        patch["full_name"] = body.full_name.strip()
+    try:
+        supabase.table("profiles").update(patch).eq("id", user_id).execute()
+    except Exception as e:
+        logger.error("profiles email sync failed for %s: %s", user_id, e)
+        # Auth email changed (the important part); surface a soft warning.
+        return {"success": True, "email": new_email, "warning": "Login email updated, but the profile copy didn't sync."}
+    return {"success": True, "email": new_email}
+
+
 # ── EMAIL NOTIFICATIONS (Phase 2) ────────────────────────────
 
 def _active_subscribed_students(pref_column: str, course_id: str = None):
