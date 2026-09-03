@@ -7,7 +7,7 @@
     <title>Medical Doctor Academy — Recordings</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/student.css?v=2">
+    <link rel="stylesheet" href="css/student.css?v=3">
     <style>
         .rate-overlay { position: fixed; inset: 0; background: rgba(10,18,40,.55); display: none; align-items: center; justify-content: center; z-index: 2200; padding: 20px; }
         .rate-overlay.open { display: flex; }
@@ -115,7 +115,7 @@
             if (!auth) return;
             STUDENT_UID = auth.session.user.id;
             WM_LABEL = (auth.profile.full_name || 'Student') + ' · ' + (auth.session.user.email || '');
-            renderLayout('recordings', 'Zoom Recordings', 'Class recordings for your courses', auth.profile);
+            renderLayout('recordings', 'Zoom Classes', 'Live class links and recordings for your courses', auth.profile);
             document.getElementById('page-content').innerHTML = `
                 <div class="section" id="live-section" style="display:none;margin-bottom:26px;">
                     <div class="section-title">🔴 Live Class Links</div>
@@ -145,7 +145,8 @@
             // Live class join links (per enrolled course) — read-only for students.
             async function loadLiveLinks() {
                 const { data, error } = await db.from('meeting_links')
-                    .select('id, title, host_name, url, course_id, courses(name)')
+                    .select('id, title, host_name, url, course_id, order_index, courses(name)')
+                    .order('order_index', { ascending: true, nullsFirst: false })
                     .order('created_at', { ascending: false });
                 if (error) { console.error('[recordings] live links failed:', error); return; }
                 const links = data || [];

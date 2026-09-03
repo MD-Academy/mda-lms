@@ -7,7 +7,7 @@
     <title>Medical Doctor Academy — User Guide</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/student.css?v=2">
+    <link rel="stylesheet" href="css/student.css?v=3">
     <style>
         .guide { max-width: 820px; }
         .guide-intro { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; font-size: 14px; line-height: 1.6; color: var(--text-muted); }
@@ -31,6 +31,7 @@
     <script src="js/config.js"></script>
     <script src="js/auth.js"></script>
     <script src="js/layout.js"></script>
+    <script src="js/tour.js"></script>
     <script>
         (async () => {
             const auth = await requireStudent();
@@ -39,7 +40,10 @@
 
             document.getElementById('page-content').innerHTML = `
             <div class="guide">
-                <div class="guide-intro">Welcome! This guide explains what each part of your portal does. Tap any section to expand it. If anything shows <strong>"Not released yet"</strong>, your teacher hasn't opened it up yet — check back later.</div>
+                <div class="guide-intro" style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;">
+                    <span>Welcome! This guide explains what each part of your portal does. Tap any section to expand it. If anything shows <strong>"Not released yet"</strong>, your teacher hasn't opened it up yet — check back later.</span>
+                    <button class="btn btn-primary btn-sm" style="flex-shrink:0;" onclick="startTour('${auth.session.user.id}')">▶ Replay the welcome tour</button>
+                </div>
 
                 <details open><summary>🏠 Dashboard</summary><div class="guide-body">
                     <p>Your home screen — your enrolled courses, upcoming classes, and the latest announcements at a glance.</p>
@@ -72,7 +76,7 @@
                     </ul>
                 </div></details>
 
-                <details><summary>🎥 Zoom Recordings</summary><div class="guide-body">
+                <details><summary>🎥 Zoom Classes</summary><div class="guide-body">
                     <p>Recorded classes for your courses — search and play them any time.</p>
                     <p>At the top, <strong>Live Class Links</strong> shows the Zoom links to <strong>join live classes</strong> — tap <strong>Open</strong> to join in a new tab, or <strong>Copy</strong> the link.</p>
                 </div></details>
