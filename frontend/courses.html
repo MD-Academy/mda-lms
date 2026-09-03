@@ -7,7 +7,7 @@
     <title>Medical Doctor Academy — My Courses</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/student.css?v=3">
+    <link rel="stylesheet" href="css/student.css?v=4">
 </head>
 <body>
     <div class="layout" id="app-layout"></div>
@@ -43,9 +43,9 @@
                 box.innerHTML = `<div class="empty-state"><h3>No active courses</h3><p>You're not enrolled in an active course yet. Please contact the office.</p></div>`;
                 return;
             }
-            box.innerHTML = `<div class="card-grid">${courses.map(c => `
+            box.innerHTML = `<div class="card-grid course-banners">${courses.map(c => `
                 <div class="course-card" onclick="location.href='course.html?id=${encodeURIComponent(c.id)}'">
-                    <div class="cc-top" ${c.image_url ? `style="background:url('${esc(c.image_url)}') center/cover;"` : ''}>${c.image_url ? '' : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`}</div>
+                    <div class="cc-top" ${c.image_url ? `style="--cc-banner:url('${esc(c.image_url)}')"` : ''}>${c.image_url ? `<img class="cc-banner" src="${esc(c.image_url)}" alt="" loading="lazy">` : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`}</div>
                     <div class="cc-body">
                         <div class="cc-title">${esc(c.name)}</div>
                         <div class="cc-sub">${esc(c.description) || 'Open to see your subjects and materials'}</div>
