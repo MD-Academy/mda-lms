@@ -26,6 +26,7 @@ RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 EMAIL_FROM = os.environ.get("EMAIL_FROM", "Medical Doctor Academy <noreply@updates.medicaldoctor-studies.com>")
 EMAIL_REPLY_TO = os.environ.get("EMAIL_REPLY_TO", "info@medicaldoctor-studies.com")
 STUDENT_URL = os.environ.get("STUDENT_URL", "https://students.medicaldoctor-studies.com").rstrip("/")
+ADMIN_URL = os.environ.get("ADMIN_URL", "https://admin.medicaldoctor-studies.com").rstrip("/")
 LOGO_URL = os.environ.get("LOGO_URL", f"{STUDENT_URL}/assets/images/favicon.png")
 RESET_URL = f"{STUDENT_URL}/reset.html"
 OFFICE_EMAIL = "info@medicaldoctor-studies.com"
@@ -156,6 +157,43 @@ def _button(label: str, url: str) -> str:
             f'<a href="{_esc(url)}" style="display:inline-block;padding:13px 26px;color:#fff;'
             f'font-weight:700;font-size:15px;text-decoration:none;border-radius:9px;">{_esc(label)}</a>'
             f'</td></tr></table>')
+
+
+def password_reset_email(full_name: str, email: str, new_password: str, login_url: str):
+    """Returns (subject, html) for a staff-initiated password reset — the user
+    gets their new password and the right portal to log into."""
+    first = (full_name or "there").strip().split()[0] if full_name else "there"
+    body = f"""\
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">Dear {_esc(first)},</p>
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">
+        Your password for the Medical Doctor International Academy portal has been reset.
+        Here are your updated login details:</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f7f9fc;border:1px solid #e6ecf4;border-radius:10px;margin:6px 0 4px;">
+        <tr><td style="padding:16px 18px;font-size:15px;line-height:1.9;">
+          <strong>Portal:</strong> <a href="{_esc(login_url)}" style="color:#2563eb;text-decoration:none;">{_esc(login_url)}</a><br>
+          <strong>Username:</strong> {_esc(email)}<br>
+          <strong>New password:</strong> <span style="font-family:monospace;background:#fff;border:1px solid #e6ecf4;border-radius:5px;padding:2px 7px;">{_esc(new_password)}</span>
+        </td></tr>
+      </table>
+      {_button("Log in to the portal", login_url)}
+      <p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#475569;">
+        For your security, please sign in and set your own password from the
+        <strong>My Profile</strong> page. If you didn't request this reset, contact the office.</p>"""
+    return ("Your Medical Doctor Academy password was reset", _wrap("🔑 Password reset", body))
+
+
+def email_changed_email(full_name: str, new_email: str, login_url: str):
+    """Returns (subject, html) for the user whose login email was changed by staff."""
+    first = (full_name or "there").strip().split()[0] if full_name else "there"
+    body = f"""\
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">Dear {_esc(first)},</p>
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">
+        The email address you use to sign in to the Medical Doctor International Academy portal has been
+        updated to <strong>{_esc(new_email)}</strong>. Please use this address to log in from now on.</p>
+      {_button("Log in to the portal", login_url)}
+      <p style="margin:0;font-size:14px;line-height:1.6;color:#475569;">
+        If you didn't expect this change, contact the office right away.</p>"""
+    return ("Your Medical Doctor Academy login email was updated", _wrap("✉️ Login email updated", body))
 
 
 def welcome_email(full_name: str, email: str, password: str, expiry_date: str = None):

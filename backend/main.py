@@ -413,13 +413,28 @@ def delete_student(user_id: str, _=Depends(get_superadmin_user)):
 
 @app.post("/admin/reset-password/{user_id}")
 def reset_password(user_id: str, _=Depends(get_superadmin_user)):
-    """Generate a new password for a student and return it to the admin."""
+    """Generate a new password, apply it, AND email it to the user. Also returns it
+    to the admin so they can pass it on if the email doesn't arrive."""
     new_password = generate_password()
     try:
         supabase.auth.admin.update_user_by_id(user_id, {"password": new_password})
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to reset password: {str(e)}")
-    return {"success": True, "new_password": new_password}
+
+    # Email the user their new password (best-effort — never fails the reset).
+    emailed = False
+    try:
+        p = (supabase.table("profiles").select("full_name, email, role")
+             .eq("id", user_id).limit(1).execute().data or [{}])[0]
+        to = p.get("email")
+        if to and emails.is_valid_email(to):
+            login_url = emails.ADMIN_URL if p.get("role") in ("admin", "superadmin") else emails.STUDENT_URL
+            subject, html = emails.password_reset_email(p.get("full_name"), to, new_password, login_url)
+            emailed = emails.send_email(to, subject, html)
+    except Exception as e:
+        logger.error("Password-reset email failed for %s: %s", user_id, e)
+
+    return {"success": True, "new_password": new_password, "emailed": emailed}
 
 
 @app.get("/admin/auth-email/{user_id}")
@@ -458,13 +473,29 @@ def update_user_email(user_id: str, body: UpdateUserEmailReq, _=Depends(get_supe
     patch = {"email": new_email}
     if body.full_name is not None and body.full_name.strip():
         patch["full_name"] = body.full_name.strip()
+    warning = None
     try:
         supabase.table("profiles").update(patch).eq("id", user_id).execute()
     except Exception as e:
         logger.error("profiles email sync failed for %s: %s", user_id, e)
-        # Auth email changed (the important part); surface a soft warning.
-        return {"success": True, "email": new_email, "warning": "Login email updated, but the profile copy didn't sync."}
-    return {"success": True, "email": new_email}
+        warning = "Login email updated, but the profile copy didn't sync."
+
+    # Notify the user at their NEW address that their login email changed.
+    emailed = False
+    try:
+        role = None
+        prof = (supabase.table("profiles").select("full_name, role").eq("id", user_id).limit(1).execute().data or [{}])[0]
+        role = prof.get("role")
+        login_url = emails.ADMIN_URL if role in ("admin", "superadmin") else emails.STUDENT_URL
+        subject, html = emails.email_changed_email(patch.get("full_name") or prof.get("full_name"), new_email, login_url)
+        emailed = emails.send_email(new_email, subject, html)
+    except Exception as e:
+        logger.error("Email-changed notification failed for %s: %s", user_id, e)
+
+    out = {"success": True, "email": new_email, "emailed": emailed}
+    if warning:
+        out["warning"] = warning
+    return out
 
 
 # ── EMAIL NOTIFICATIONS (Phase 2) ────────────────────────────
