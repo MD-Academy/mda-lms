@@ -13,7 +13,7 @@
         { sel: '#notif-bell', title: '🔔 Notifications', text: 'The bell lights up whenever there is something new for you — feedback, a reply, or an announcement.' },
         { sel: '#avatar-btn', title: '👤 Your photo', text: 'Tap your picture to upload a photo. You can change your password under Profile.' },
         { sel: '.nav-item[href="support.html"]', title: '🆘 Help & Support', text: "Stuck on anything? Open a support ticket and the office will help. There's also a full User Guide in the menu." },
-        { sel: null, title: "You're all set 🎉", text: 'Explore at your own pace. Welcome aboard, and good luck with your studies!' },
+        { sel: '.nav-item[href="guide.html"]', title: "You're all set 🎉", text: 'Want to see this again? Open the User Guide any time and tap “Replay the welcome tour”. Welcome aboard, and good luck with your studies!' },
     ];
 
     let idx = 0, uid = null, ov = null, prevHi = null;
@@ -70,19 +70,35 @@
             target.classList.add('tour-highlight');
             prevHi = target;
             try { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
-            // Position the card next to the target (to its right, or below on small screens).
-            const r = target.getBoundingClientRect();
-            card.classList.remove('centered');
-            const cardW = 340, gap = 16;
-            let left = r.right + gap, top = Math.max(16, r.top);
-            if (left + cardW > window.innerWidth - 12) { left = Math.max(12, r.left); top = r.bottom + gap; }
-            if (top + 220 > window.innerHeight) top = Math.max(16, window.innerHeight - 240);
-            card.style.left = left + 'px';
-            card.style.top = top + 'px';
+            positionCard(card, target);
         } else {
             card.classList.add('centered');
             card.style.left = ''; card.style.top = '';
         }
+    }
+
+    // Place the card beside the target, always kept fully inside the screen.
+    function positionCard(card, target) {
+        card.classList.remove('centered');
+        card.style.left = '0px'; card.style.top = '0px';   // measure at a known spot
+        const vw = window.innerWidth, vh = window.innerHeight, gap = 14, pad = 12;
+        const cw = Math.min(card.offsetWidth || 340, vw - pad * 2);
+        const ch = card.offsetHeight || 220;
+        const r = target.getBoundingClientRect();
+        let left, top;
+        if (vw - r.right >= cw + gap + pad) {            // room on the right
+            left = r.right + gap; top = r.top;
+        } else if (r.left >= cw + gap + pad) {           // room on the left
+            left = r.left - cw - gap; top = r.top;
+        } else if (vh - r.bottom >= ch + gap + pad) {    // room below
+            left = r.left + r.width / 2 - cw / 2; top = r.bottom + gap;
+        } else {                                          // otherwise above
+            left = r.left + r.width / 2 - cw / 2; top = r.top - ch - gap;
+        }
+        left = Math.max(pad, Math.min(left, vw - cw - pad));
+        top = Math.max(pad, Math.min(top, vh - ch - pad));
+        card.style.left = left + 'px';
+        card.style.top = top + 'px';
     }
 
     function start() { idx = 0; ensure(); ov.classList.add('open'); show(); }
