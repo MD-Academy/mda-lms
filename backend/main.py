@@ -1576,13 +1576,18 @@ def _require_active_student(authorization: str):
 
 
 def _staff_rows():
-    """All active staff, ordered super-admins first then by name, with their
-    public profile fields. Shared by the student and admin directories."""
+    """All active staff, in the super-admin's chosen display order (staff_order),
+    falling back to super-admins-first-then-name for anyone not yet arranged.
+    Shared by the student and admin directories."""
     rows = (supabase.table("profiles")
-            .select("id, full_name, job_title, specialty, bio, education, avatar_url, role, status")
+            .select("id, full_name, job_title, specialty, bio, education, avatar_url, role, status, staff_order")
             .in_("role", ["admin", "superadmin"]).execute().data or [])
     rows = [r for r in rows if r.get("status") != "suspended"]
-    rows.sort(key=lambda r: (0 if r.get("role") == "superadmin" else 1, (r.get("full_name") or "").lower()))
+    rows.sort(key=lambda r: (
+        r.get("staff_order") if r.get("staff_order") is not None else 10**9,
+        0 if r.get("role") == "superadmin" else 1,
+        (r.get("full_name") or "").lower(),
+    ))
     return [{
         "id": r["id"],
         "full_name": r.get("full_name") or "Staff",
@@ -1592,6 +1597,21 @@ def _staff_rows():
         "education": r.get("education"),
         "avatar_url": r.get("avatar_url"),
     } for r in rows]
+
+
+class StaffOrderReq(BaseModel):
+    order: List[str]   # staff ids, in the desired display order
+
+
+@app.post("/admin/set-staff-order")
+def set_staff_order(body: StaffOrderReq, _=Depends(get_superadmin_user)):
+    """Super-admin sets the display order of the Staff directory / student roster."""
+    ids = [i for i in (body.order or []) if i]
+    if not ids:
+        raise HTTPException(status_code=400, detail="No staff order was provided.")
+    for idx, uid in enumerate(ids):
+        supabase.table("profiles").update({"staff_order": idx}).eq("id", uid).execute()
+    return {"success": True, "updated": len(ids)}
 
 
 @app.get("/student/staff-directory")
