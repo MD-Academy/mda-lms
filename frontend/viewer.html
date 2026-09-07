@@ -52,7 +52,7 @@
     <script src="js/config.js"></script>
     <script src="js/auth.js"></script>
     <script>
-        document.getElementById('back-link').addEventListener('click', e => { e.preventDefault(); history.back(); });
+        document.getElementById('back-link').addEventListener('click', e => { e.preventDefault(); if (CURRENT_PAGE) saveProgressNow(CURRENT_PAGE); history.back(); });
 
         (async () => {
             const auth = await requireStudent();
@@ -63,6 +63,15 @@
             const title = params.get('title') || 'Material';
             document.getElementById('rt-title').textContent = title;
             if (!path) { document.getElementById('status').textContent = 'No file specified.'; return; }
+
+            // Resume reading where the student left off — one saved page per student per file.
+            READER_UID = auth.session.user.id;
+            READER_PATH = path;
+            try {
+                const { data: rp } = await db.from('reading_progress')
+                    .select('page').eq('user_id', READER_UID).eq('storage_path', path).maybeSingle();
+                if (rp && rp.page > 1) { CURRENT_PAGE = rp.page; LAST_SAVED_PAGE = rp.page; }
+            } catch (e) { console.warn('[viewer] could not load reading progress:', e); }
 
             // Gentle ownership watermark tiled across the reading area (same for everyone).
             const wmText = "Property of Medical Doctor Academy &amp; Debrecen-Eilat Medical Faculty";
@@ -140,6 +149,59 @@
         let VIEW_MODE = 'scroll';
         let bookFlip = null;
 
+        // ── READING PROGRESS: remember + resume the last page read ──
+        let READER_UID = null, READER_PATH = null;
+        let CURRENT_PAGE = 0, LAST_SAVED_PAGE = 0;
+        let TOAST_SHOWN = false, SCROLL_HOOKED = false;
+        let _saveTimer = null;
+
+        function saveProgress(page) {
+            if (!page || !READER_UID || page === LAST_SAVED_PAGE) return;
+            LAST_SAVED_PAGE = page;
+            clearTimeout(_saveTimer);
+            _saveTimer = setTimeout(() => saveProgressNow(page), 1200);
+        }
+        function saveProgressNow(page) {
+            if (!page || !READER_UID) return;
+            LAST_SAVED_PAGE = page;
+            clearTimeout(_saveTimer);
+            db.from('reading_progress').upsert(
+                { user_id: READER_UID, storage_path: READER_PATH, page, updated_at: new Date().toISOString() },
+                { onConflict: 'user_id,storage_path' }
+            ).then(({ error }) => { if (error) console.warn('[viewer] save progress failed:', error); });
+        }
+        function showResumeToast(page) {
+            const t = document.createElement('div');
+            t.textContent = `↻ Resumed at page ${page}`;
+            t.style.cssText = 'position:fixed;top:64px;left:50%;transform:translateX(-50%);background:#0a1e3d;color:#fff;padding:8px 16px;border-radius:20px;font-size:13px;font-weight:600;z-index:40;box-shadow:0 4px 16px rgba(0,0,0,.35);opacity:0;transition:opacity .3s;pointer-events:none;';
+            document.body.appendChild(t);
+            requestAnimationFrame(() => { t.style.opacity = '1'; });
+            setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 3000);
+        }
+        function currentScrollPage() {
+            const canvases = document.querySelectorAll('#pdf-container canvas[data-page]');
+            if (!canvases.length) return 0;
+            const topBar = 64;
+            let best = canvases[0];
+            for (const c of canvases) {
+                if (c.getBoundingClientRect().top <= topBar) best = c; else break;
+            }
+            return parseInt(best.dataset.page, 10) || 0;
+        }
+        function hookScrollTracking() {
+            if (SCROLL_HOOKED) return;
+            SCROLL_HOOKED = true;
+            let t = null;
+            window.addEventListener('scroll', () => {
+                clearTimeout(t);
+                t = setTimeout(() => {
+                    const p = currentScrollPage();
+                    if (p) { CURRENT_PAGE = p; saveProgress(p); }
+                }, 900);
+            }, { passive: true });
+        }
+        window.addEventListener('pagehide', () => { if (CURRENT_PAGE) saveProgressNow(CURRENT_PAGE); });
+
         async function renderScroll() {
             const pdf = PDF_DOC; if (!pdf) return;
             const container = document.getElementById('pdf-container');
@@ -155,8 +217,19 @@
                 const canvas = document.createElement('canvas');
                 canvas.width = viewport.width; canvas.height = viewport.height;
                 canvas.style.width = (viewport.width / (window.devicePixelRatio || 1)) + 'px';
+                canvas.dataset.page = n;
                 container.appendChild(canvas);
                 await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+            }
+            hookScrollTracking();
+            if (CURRENT_PAGE > 1) {
+                const target = container.querySelector(`canvas[data-page="${CURRENT_PAGE}"]`);
+                if (target) {
+                    requestAnimationFrame(() => {
+                        target.scrollIntoView({ block: 'start' });
+                        if (!TOAST_SHOWN) { TOAST_SHOWN = true; showResumeToast(CURRENT_PAGE); }
+                    });
+                }
             }
         }
 
@@ -216,6 +289,15 @@
                     mobileScrollSupport: false
                 });
                 bookFlip.loadFromImages(RENDER_CACHE[renderW]);
+                bookFlip.on('flip', e => {
+                    const p = (e.data || 0) + 1;
+                    CURRENT_PAGE = p;
+                    saveProgress(p);
+                });
+                if (CURRENT_PAGE > 1) {
+                    try { bookFlip.turnToPage(CURRENT_PAGE - 1); } catch (e) {}
+                    if (!TOAST_SHOWN) { TOAST_SHOWN = true; showResumeToast(CURRENT_PAGE); }
+                }
             } catch (err) {
                 console.error('[viewer] book view failed:', err);
                 container.innerHTML = `<div id="status">Couldn't open book view. Switching back to scrolling…</div>`;
