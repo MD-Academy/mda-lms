@@ -282,24 +282,44 @@ def inactivity_email(full_name: str, email: str, days: int):
     return ("We've saved your spot — continue your studies", _wrap("We miss you 👋", body))
 
 
-def attendance_low_email(full_name: str, email: str, low_courses: list, threshold):
-    """Returns (subject, html). low_courses = [(course_name, pct), ...]."""
-    rows = "".join(
-        f'<li style="margin:4px 0;"><strong>{_esc(name)}</strong> — {pct}% attended</li>'
-        for name, pct in low_courses
-    )
+def attendance_weekly_email(full_name: str, email: str, courses: list, threshold):
+    """Returns (subject, html). courses = [(course_name, attended, missed, total, pct), ...] —
+    one calm weekly digest per student covering every enrolled course that's held a class,
+    not a daily alert. Courses below the required % are called out within the table."""
+    def row(name, attended, missed, total, pct):
+        low = pct < threshold
+        pct_style = 'color:#dc2626;font-weight:800;' if low else 'color:#15803d;font-weight:800;'
+        flag = ' <span style="color:#dc2626;font-weight:700;font-size:12px;">· below required</span>' if low else ''
+        return (f'<tr><td style="padding:10px 12px;border-bottom:1px solid #e6ecf4;font-size:14px;">{_esc(name)}{flag}</td>'
+                f'<td style="padding:10px 12px;border-bottom:1px solid #e6ecf4;font-size:14px;text-align:center;">{attended}</td>'
+                f'<td style="padding:10px 12px;border-bottom:1px solid #e6ecf4;font-size:14px;text-align:center;">{missed}</td>'
+                f'<td style="padding:10px 12px;border-bottom:1px solid #e6ecf4;font-size:14px;text-align:center;">{total}</td>'
+                f'<td style="padding:10px 12px;border-bottom:1px solid #e6ecf4;font-size:14px;text-align:center;{pct_style}">{pct}%</td></tr>')
+    rows = "".join(row(*c) for c in courses)
+    any_low = any(pct < threshold for (_, _, _, _, pct) in courses)
+    note = (f"""<p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#475569;">
+        One or more courses are below the required <strong>{int(threshold)}%</strong> — please make sure to
+        attend your upcoming classes, and contact the office if you'd like to discuss any missed sessions.</p>"""
+            if any_low else
+            f"""<p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#475569;">
+        You're meeting the required <strong>{int(threshold)}%</strong> attendance on every course — keep it up!</p>""")
     body = f"""\
       {_greeting(full_name)}
-      <p style="margin:0 0 12px;font-size:15px;line-height:1.6;">
-        This is a friendly reminder that your attendance has dropped below the required
-        <strong>{int(threshold)}%</strong>:</p>
-      <ul style="margin:0 0 16px;padding-left:20px;font-size:15px;line-height:1.7;color:#334155;">{rows}</ul>
-      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">
-        Regular attendance is important for your progress. Please make sure to attend your
-        upcoming classes, and contact the office if you need to discuss any missed sessions.</p>
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">Here's your attendance for the week, across your courses:</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;background:#f7f9fc;border:1px solid #e6ecf4;border-radius:10px;overflow:hidden;margin:6px 0 16px;">
+        <tr style="background:#eef2f9;">
+          <th style="padding:10px 12px;text-align:left;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;">Course</th>
+          <th style="padding:10px 12px;text-align:center;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;">Attended</th>
+          <th style="padding:10px 12px;text-align:center;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;">Missed</th>
+          <th style="padding:10px 12px;text-align:center;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;">Held</th>
+          <th style="padding:10px 12px;text-align:center;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;">%</th>
+        </tr>
+        {rows}
+      </table>
+      {note}
       {_button("Open your portal", STUDENT_URL)}
       {_login_help(email)}"""
-    return ("Attendance reminder — please attend your classes", _wrap("📅 Attendance reminder", body))
+    return ("Your weekly attendance summary", _wrap("📅 Weekly attendance summary", body))
 
 
 def grade_low_email(full_name: str, email: str, low_courses: list, threshold):

@@ -865,7 +865,11 @@ def _run_daily_reminders(force=False):
                 new_logs.append({"user_id": sid, "type": "expiry_7", "ref_date": exp})
                 sent_keys.add((sid, "expiry_7", exp))
 
-    # ── Low attendance (weekly, deduped to once per calendar week) ──
+    # ── Weekly attendance summary (deduped to once per calendar week — NOT a daily alert) ──
+    # Every student with any class history this week gets one calm digest of lessons
+    # attended/missed across their courses. Courses below the required % are still flagged
+    # within it and logged to student_warnings for the office, but the email itself is a
+    # routine summary, not a per-incident warning.
     attendance_sent = 0
     try:
         amin_row = supabase.table("app_settings").select("value").eq("key", "attendance_min").limit(1).execute().data
@@ -895,38 +899,44 @@ def _run_daily_reminders(force=False):
 
         for s in students_active:
             sid, email, name = s["id"], s["email"], s.get("full_name")
-            low = []   # (course_id, course_name, pct, present, total)
+            summary = []   # (course_id, course_name, attended, missed, total, pct, is_low)
             for cid in enroll_by_student.get(sid, ()):
                 total = len(sessions_by_course.get(cid, []))
                 if total == 0:
-                    continue
+                    continue   # nothing held yet for this course — nothing to report
                 present = present_ct.get((sid, cid), 0)
                 pct = round(present / total * 100)
-                if pct < attendance_min:
-                    low.append((cid, course_names.get(cid, "your course"), pct, present, total))
-            if low:
-                # Email at most once per week (email_log); build the audit record every time
-                # (the insert de-dups per week, so records self-heal without ever duplicating).
-                subject = "Attendance reminder — please attend your classes"
-                already = (sid, "attendance_low", week_start) in sent_keys
-                delivered = already
-                if not already:
-                    subject, html = emails.attendance_low_email(name, email, [(cn, pc) for (_, cn, pc, _, _) in low], attendance_min)
-                    delivered = emails.send_email(email, subject, html)
-                    if delivered:
-                        attendance_sent += 1
-                    new_logs.append({"user_id": sid, "type": "attendance_low", "ref_date": week_start})
-                    sent_keys.add((sid, "attendance_low", week_start))
-                for (cid, cn, pc, present, total) in low:
-                    warning_rows.append({
-                        "student_id": sid, "student_name": name, "type": "attendance_low",
-                        "course_id": cid, "course_name": cn,
-                        "detail": f"Attendance {pc}% ({present} of {total} classes) — below the required {int(attendance_min)}%",
-                        "channel": "email", "email_to": email, "subject": subject, "delivered": bool(delivered),
-                    })
-                sent_keys.add((sid, "attendance_low", week_start))
+                summary.append((cid, course_names.get(cid, "your course"), present, total - present, total, pct, pct < attendance_min))
+            if not summary:
+                continue   # no class history at all yet — skip, nothing to summarize
+
+            # Email at most once per week (email_log); build the audit record every time
+            # (the insert de-dups per week, so records self-heal without ever duplicating).
+            subject = "Your weekly attendance summary"
+            already = (sid, "attendance_weekly", week_start) in sent_keys
+            delivered = already
+            if not already:
+                subject, html = emails.attendance_weekly_email(
+                    name, email,
+                    [(cn, att, miss, tot, pc) for (_, cn, att, miss, tot, pc, _) in summary],
+                    attendance_min,
+                )
+                delivered = emails.send_email(email, subject, html)
+                if delivered:
+                    attendance_sent += 1
+                new_logs.append({"user_id": sid, "type": "attendance_weekly", "ref_date": week_start})
+                sent_keys.add((sid, "attendance_weekly", week_start))
+            for (cid, cn, att, miss, tot, pc, is_low) in summary:
+                if not is_low:
+                    continue
+                warning_rows.append({
+                    "student_id": sid, "student_name": name, "type": "attendance_low",
+                    "course_id": cid, "course_name": cn,
+                    "detail": f"Attendance {pc}% ({att} of {tot} classes) — below the required {int(attendance_min)}%",
+                    "channel": "email", "email_to": email, "subject": subject, "delivered": bool(delivered),
+                })
     except Exception as e:
-        logger.error("Attendance reminders failed: %s", e)
+        logger.error("Attendance summary failed: %s", e)
 
     # ── Low overall grade (weekly, deduped) ──
     grade_sent = 0
