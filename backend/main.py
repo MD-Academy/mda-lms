@@ -401,6 +401,62 @@ def set_staff_role(user_id: str, body: StaffRoleReq, _=Depends(get_superadmin_us
     return {"success": True, "job_title": jt or None}
 
 
+class StaffPhotoReq(BaseModel):
+    image_base64: str
+
+
+@app.post("/admin/set-staff-photo/{user_id}")
+def set_staff_photo(user_id: str, body: StaffPhotoReq, _=Depends(get_superadmin_user)):
+    """Super-admin uploads/replaces a staff member's profile photo — for staff who
+    won't get around to doing it themselves. They can still change or remove it
+    afterward from their own My Profile; this just sets a starting photo."""
+    import re as _re
+    import base64 as _b64
+    import time as _time
+
+    target = (supabase.table("profiles").select("id, role").eq("id", user_id).limit(1).execute().data or [])
+    if not target:
+        raise HTTPException(status_code=404, detail="Staff member not found.")
+    if target[0].get("role") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=400, detail="A photo can only be set on a staff account.")
+
+    raw = (body.image_base64 or "").strip()
+    content_type, ext = "image/jpeg", "jpg"
+    if raw.startswith("data:") and "," in raw:
+        header, raw = raw.split(",", 1)
+        m = _re.match(r"data:(image/[\w.+-]+);base64", header)
+        if m:
+            content_type = m.group(1).lower()
+    ext_by_type = {"image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg", "image/webp": "webp", "image/gif": "gif"}
+    if content_type not in ext_by_type:
+        raise HTTPException(status_code=400, detail="Invalid image type. Use PNG, JPG, WEBP or GIF.")
+    ext = ext_by_type[content_type]
+
+    try:
+        img_bytes = _b64.b64decode(raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Could not read the uploaded image.")
+    if not img_bytes:
+        raise HTTPException(status_code=400, detail="The uploaded image is empty.")
+    if len(img_bytes) > 500 * 1024:
+        raise HTTPException(status_code=400, detail=f"Image is too large ({len(img_bytes) // 1024} KB). Maximum is 500 KB.")
+
+    path = f"{user_id}/avatar.{ext}"
+    try:
+        try:
+            supabase.storage.from_("avatars").remove([path])
+        except Exception:
+            pass
+        supabase.storage.from_("avatars").upload(path, img_bytes, {"content-type": content_type})
+    except Exception as e:
+        logger.error("Staff photo upload failed for %s: %s", user_id, e)
+        raise HTTPException(status_code=500, detail=f"Could not save the photo: {str(e)}")
+
+    url = f"{SUPABASE_URL}/storage/v1/object/public/avatars/{path}?t={int(_time.time())}"
+    supabase.table("profiles").update({"avatar_url": url}).eq("id", user_id).execute()
+    return {"success": True, "avatar_url": url}
+
+
 @app.delete("/admin/delete-student/{user_id}")
 def delete_student(user_id: str, _=Depends(get_superadmin_user)):
     """Permanently delete a student account."""
