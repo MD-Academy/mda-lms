@@ -199,7 +199,7 @@
                 if (term) q = q.or(`title.ilike.%${term}%,professor.ilike.%${term}%`);
                 if (dateFrom) q = q.gte('recorded_date', dateFrom);
                 if (dateTo) q = q.lte('recorded_date', dateTo);
-                q = q.order('recorded_date', { ascending: false }).range(from, to);
+                q = q.order('created_at', { ascending: false }).range(from, to);
 
                 const { data, error, count } = await q;
                 if (error) {
