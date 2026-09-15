@@ -829,6 +829,22 @@ def _to_date(val):
         return None
 
 
+def _fetch_all(table: str, columns: str, page_size: int = 1000):
+    """Select() with no .range() is silently capped at PostgREST's default
+    max-rows (1000 on Supabase), so any table that grows past that loses its
+    oldest/newest rows depending on ordering. Page through explicitly so
+    callers always see the full table regardless of its size."""
+    rows = []
+    start = 0
+    while True:
+        batch = supabase.table(table).select(columns).range(start, start + page_size - 1).execute().data or []
+        rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        start += page_size
+    return rows
+
+
 # Auto-cleanup window: announcements and past calendar events are hard-deleted
 # once they are this many days old, so the dashboard never accumulates forever.
 PURGE_DAYS = 21
@@ -884,7 +900,7 @@ def _run_daily_reminders(force=False):
         if d and (sid not in last_act or d > last_act[sid]):
             last_act[sid] = d
 
-    logs = supabase.table("email_log").select("user_id, type, ref_date").execute().data or []
+    logs = _fetch_all("email_log", "user_id, type, ref_date")
     sent_keys = {(l["user_id"], l["type"], l.get("ref_date")) for l in logs}
 
     inactivity_sent = 0
