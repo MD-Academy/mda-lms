@@ -99,6 +99,11 @@
                         <div class="section-title" style="margin-bottom:10px;">Two-Factor Authentication (2FA)</div>
                         <div id="mfa-section"></div>
                     </div>
+                    <div class="panel" style="margin-top:22px;">
+                        <div class="section-title" style="margin-bottom:6px;">Your Activity</div>
+                        <p style="color:var(--text-muted);font-size:13px;margin-bottom:16px;">How much time you've spent logged into the portal.</p>
+                        <div id="my-activity"><div class="loader">Loading…</div></div>
+                    </div>
                 </div>`;
 
             // Notification preferences — save on toggle via the backend.
@@ -187,7 +192,111 @@
 
             renderMfaSection('mfa-section');
             loadCertificates();
+            loadMyActivity(auth.session.user.id);
         })();
+
+        // ── YOUR ACTIVITY (own login time; filterable) ──
+        let _myAllSessions = [];
+        let _myFilterFrom = null, _myFilterTo = null, _myActivePreset = 'all';
+
+        function fmtDur(secs) {
+            secs = Math.max(0, Math.round(secs));
+            const h = Math.floor(secs / 3600);
+            const m = Math.floor((secs % 3600) / 60);
+            if (h) return `${h}h ${m}m`;
+            if (m) return `${m}m`;
+            return `${secs}s`;
+        }
+        function fmtDay(d) { return new Date(d).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }); }
+        function fmtHM(d) { return new Date(d).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); }
+        function _myDateInputVal(d) { return d ? new Date(d).toISOString().slice(0, 10) : ''; }
+
+        function _myFilterBarHtml() {
+            const presets = [['today', 'Today'], ['week', 'This week'], ['month', 'This month'], ['all', 'All time']];
+            return `
+                <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;" id="my-filter-bar">
+                    ${presets.map(([id, label]) => `<button class="btn ${_myActivePreset === id ? 'btn-primary' : 'btn-ghost'}" style="padding:7px 14px;font-size:13px;" onclick="setMyActivityFilter('${id}')">${label}</button>`).join('')}
+                    <input type="date" id="my-from" style="border:1.5px solid var(--border);border-radius:8px;padding:6px 10px;font-size:13px;" value="${_myActivePreset === 'custom' ? _myDateInputVal(_myFilterFrom) : ''}">
+                    <span style="color:var(--text-muted);font-size:13px;align-self:center;">to</span>
+                    <input type="date" id="my-to" style="border:1.5px solid var(--border);border-radius:8px;padding:6px 10px;font-size:13px;" value="${_myActivePreset === 'custom' ? _myDateInputVal(_myFilterTo) : ''}">
+                    <button class="btn ${_myActivePreset === 'custom' ? 'btn-primary' : 'btn-ghost'}" style="padding:7px 14px;font-size:13px;" onclick="applyMyCustomFilter()">Apply</button>
+                </div>`;
+        }
+
+        function setMyActivityFilter(preset) {
+            _myActivePreset = preset;
+            const now = new Date();
+            const startOfDay = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+            if (preset === 'today') { _myFilterFrom = startOfDay(now); _myFilterTo = null; }
+            else if (preset === 'week') { const f = startOfDay(now); f.setDate(f.getDate() - f.getDay()); _myFilterFrom = f; _myFilterTo = null; }
+            else if (preset === 'month') { _myFilterFrom = new Date(now.getFullYear(), now.getMonth(), 1); _myFilterTo = null; }
+            else { _myFilterFrom = null; _myFilterTo = null; }
+            renderMyActivityFiltered();
+        }
+
+        function applyMyCustomFilter() {
+            const fromVal = document.getElementById('my-from').value;
+            const toVal = document.getElementById('my-to').value;
+            _myActivePreset = 'custom';
+            _myFilterFrom = fromVal ? new Date(fromVal + 'T00:00:00') : null;
+            _myFilterTo = toVal ? new Date(toVal + 'T23:59:59') : null;
+            renderMyActivityFiltered();
+        }
+
+        async function loadMyActivity(studentId) {
+            const box = document.getElementById('my-activity');
+            const { data, error } = await db.from('login_sessions')
+                .select('started_at, last_seen_at, ended_at')
+                .eq('student_id', studentId)
+                .order('started_at', { ascending: false });
+            if (error) { box.innerHTML = `<div class="hint" style="color:var(--red)">Couldn't load your activity.</div>`; return; }
+            _myAllSessions = data || [];
+            if (_myAllSessions.length === 0) {
+                box.innerHTML = `<div class="hint">No activity recorded yet — this fills in as you use the portal.</div>`;
+                return;
+            }
+            renderMyActivityFiltered();
+        }
+
+        function renderMyActivityFiltered() {
+            const box = document.getElementById('my-activity');
+            const bar = document.getElementById('my-filter-bar');
+            const sessions = _myAllSessions.filter(s => {
+                const t = new Date(s.started_at).getTime();
+                if (_myFilterFrom && t < _myFilterFrom.getTime()) return false;
+                if (_myFilterTo && t > _myFilterTo.getTime()) return false;
+                return true;
+            });
+
+            const days = {};
+            let grand = 0;
+            sessions.forEach(s => {
+                const start = new Date(s.started_at);
+                const end = s.ended_at ? new Date(s.ended_at) : (s.last_seen_at ? new Date(s.last_seen_at) : start);
+                const dur = Math.max(0, (end - start) / 1000);
+                grand += dur;
+                const k = fmtDay(s.started_at);
+                if (!days[k]) days[k] = { total: 0, rows: [], sort: start.getTime() };
+                days[k].total += dur;
+                days[k].sort = Math.max(days[k].sort, start.getTime());
+                days[k].rows.push({ start, end, dur });
+            });
+            const ordered = Object.keys(days).sort((a, b) => days[b].sort - days[a].sort);
+
+            box.innerHTML = `
+                ${_myFilterBarHtml()}
+                <div style="font-size:14px;font-weight:700;color:var(--navy-800);margin-bottom:14px;">Total time: ${fmtDur(grand)} · ${sessions.length} session${sessions.length === 1 ? '' : 's'}</div>
+                ${ordered.length === 0 ? `<div class="hint">No activity in this range.</div>` : ordered.map(k => {
+                    const d = days[k];
+                    d.rows.sort((a, b) => a.start - b.start);
+                    return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px;">
+                        <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;color:var(--navy-800);margin-bottom:6px;">
+                            <span>${esc(k)}</span><span>${fmtDur(d.total)}</span>
+                        </div>
+                        ${d.rows.map(r => `<div style="font-size:12.5px;color:var(--text-muted);padding:3px 0;">${fmtHM(r.start)} → ${fmtHM(r.end)} <span style="color:var(--navy-800);font-weight:600;">(${fmtDur(r.dur)})</span></div>`).join('')}
+                    </div>`;
+                }).join('')}`;
+        }
 
         // ── MY CERTIFICATES (diploma + recommendation letter) ──
         async function loadCertificates() {
