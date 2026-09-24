@@ -131,7 +131,7 @@ async function _startLoginTracking(studentId) {
         _heartbeatTimer = setInterval(() => {
             const id = sessionStorage.getItem('mda_login_session_id');
             if (id) db.from('login_sessions').update({ last_seen_at: new Date().toISOString(), ended_at: null }).eq('id', id);
-        }, 60000);
+        }, 15000);
 
         // On unload, just bump "last seen" — do NOT end the session, because normal
         // page navigation fires this too. The session ends only on sign-out (below).
