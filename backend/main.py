@@ -78,6 +78,28 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     )
 
 
+# ── SESSION-END BEACON ────────────────────────────────────────
+# Fired via navigator.sendBeacon when a tab closes/navigates away, since a
+# regular fetch() started in beforeunload/pagehide is routinely killed by the
+# browser mid-flight before it reaches Supabase. No auth: the session_id is
+# an unguessable UUID the browser already holds, and this only ever stamps
+# an end time on a row that already exists — nothing sensitive is exposed.
+class SessionEndReq(BaseModel):
+    session_id: str
+    table: str
+
+_TRACKABLE_SESSION_TABLES = {"login_sessions", "admin_sessions"}
+
+@app.post("/track/session-end")
+async def track_session_end(body: SessionEndReq):
+    if body.table not in _TRACKABLE_SESSION_TABLES:
+        raise HTTPException(status_code=400, detail="Invalid table.")
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    supabase.table(body.table).update({"last_seen_at": now, "ended_at": now}).eq("id", body.session_id).execute()
+    return {"ok": True}
+
+
 # ── AUTH HELPERS ──────────────────────────────────────────────
 
 def _verify_user(authorization: str, allowed_roles: tuple):
@@ -845,6 +867,48 @@ def _fetch_all(table: str, columns: str, page_size: int = 1000):
     return rows
 
 
+def _escalate_overdue_messages():
+    """Student-initiated messages (student_notes.initiated_by='student') with no
+    staff reply after 4 days get reassigned to the messages owner
+    (app_settings.messages_owner_id), so nothing sits unanswered indefinitely.
+    Returns the number reassigned."""
+    from datetime import datetime, timezone
+
+    owner_row = supabase.table("app_settings").select("value").eq("key", "messages_owner_id").execute().data
+    owner_id = owner_row[0]["value"] if owner_row else None
+    if not owner_id:
+        return 0
+    owner_prof = supabase.table("profiles").select("full_name").eq("id", owner_id).single().execute().data
+    owner_name = (owner_prof or {}).get("full_name")
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=4)).isoformat()
+    candidates = (supabase.table("student_notes")
+                  .select("id, staff_id")
+                  .eq("initiated_by", "student")
+                  .lte("created_at", cutoff)
+                  .neq("staff_id", owner_id)
+                  .execute().data or [])
+    if not candidates:
+        return 0
+
+    note_ids = [c["id"] for c in candidates]
+    replied = (supabase.table("student_note_replies")
+               .select("note_id")
+               .eq("author_role", "staff")
+               .in_("note_id", note_ids)
+               .execute().data or [])
+    replied_ids = {r["note_id"] for r in replied}
+
+    to_escalate = [c["id"] for c in candidates if c["id"] not in replied_ids]
+    if not to_escalate:
+        return 0
+
+    supabase.table("student_notes").update(
+        {"staff_id": owner_id, "staff_name": owner_name}
+    ).in_("id", to_escalate).execute()
+    return len(to_escalate)
+
+
 # Auto-cleanup window: announcements and past calendar events are hard-deleted
 # once they are this many days old, so the dashboard never accumulates forever.
 PURGE_DAYS = 21
@@ -1142,9 +1206,18 @@ def _run_daily_reminders(force=False):
         except Exception as e:
             logger.error("Failed to record email_log: %s", e)
 
+    messages_escalated = 0
+    messages_escalate_error = None
+    try:
+        messages_escalated = _escalate_overdue_messages()
+    except Exception as e:
+        messages_escalate_error = str(e)
+        logger.error("Message escalation failed: %s", e)
+
     return {"success": True, "candidates": len(students), "active_students": len(students_active),
             "inactivity_sent": inactivity_sent, "expiry_sent": expiry_sent,
             "attendance_sent": attendance_sent, "grade_sent": grade_sent,
+            "messages_escalated": messages_escalated, "messages_escalate_error": messages_escalate_error,
             "warnings_built": len(warning_rows), "warnings_recorded": warnings_recorded,
             "warnings_error": warnings_error, "grade_error": grade_error}
 

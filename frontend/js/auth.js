@@ -133,12 +133,19 @@ async function _startLoginTracking(studentId) {
             if (id) db.from('login_sessions').update({ last_seen_at: new Date().toISOString(), ended_at: null }).eq('id', id);
         }, 15000);
 
-        // On unload, just bump "last seen" — do NOT end the session, because normal
-        // page navigation fires this too. The session ends only on sign-out (below).
-        window.addEventListener('beforeunload', () => {
+        // On unload, mark the session ended via sendBeacon — a regular fetch()
+        // started here is routinely killed by the browser before it completes.
+        // If this fires from ordinary page-to-page navigation (not really
+        // leaving), the next page's _startLoginTracking clears ended_at again
+        // within milliseconds, so nothing is lost either way.
+        const _sendEndBeacon = () => {
             const id = sessionStorage.getItem('mda_login_session_id');
-            if (id) db.from('login_sessions').update({ last_seen_at: new Date().toISOString() }).eq('id', id);
-        });
+            if (!id) return;
+            const blob = new Blob([JSON.stringify({ session_id: id, table: 'login_sessions' })], { type: 'application/json' });
+            navigator.sendBeacon(`${BACKEND_URL}/track/session-end`, blob);
+        };
+        window.addEventListener('beforeunload', _sendEndBeacon);
+        window.addEventListener('pagehide', _sendEndBeacon);
         // Keep the session fresh as the student moves between tabs/windows. When
         // they come back to the portal tab, immediately refresh it (and keep it
         // open) so background-tab timer throttling doesn't make it look "ended".
