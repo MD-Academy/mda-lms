@@ -117,6 +117,9 @@
                     ${(!pass && res.wrong && res.wrong.length) ? `<div class="r-review"><strong>Questions to review:</strong> ${res.wrong.map(n => '#' + n).join(', ')}.<br><span style="color:var(--text-muted);">Review these and try again after the short cooldown. You've got this. 💪</span></div>` : ''}
                     <div style="margin-top:22px;"><a class="btn btn-ghost" onclick="history.back()" style="cursor:pointer;">Back to Subject</a></div>
                 </div>`;
+            // Students scroll down through 10 questions to reach Submit — without this,
+            // the result renders above/below their current scroll position and looks blank.
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
     </script>
 </body>

@@ -126,6 +126,9 @@
                         ${!pass ? `<button class="btn btn-primary" onclick="location.reload()">Try Again</button>` : ''}
                     </div>
                 </div>`;
+            // Students scroll down through the questions to reach Submit — without this,
+            // the result renders above/below their current scroll position and looks blank.
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
     </script>
 </body>
