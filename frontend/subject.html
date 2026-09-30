@@ -171,6 +171,14 @@
             if (quizErr) console.error('[subject] quizzes failed to load:', qRes.error);
             const quizzes = (quizErr ? [] : (qRes.data || [])).filter(q => q.is_visible !== false);
 
+            // This student's own latest attempt per quiz (for a status line + "View my answers").
+            const quizAttemptByQuiz = {};
+            if (quizzes.length) {
+                const { data: qaData } = await db.from('quiz_attempts').select('quiz_id, score, completed_at')
+                    .in('quiz_id', quizzes.map(q => q.id)).order('completed_at', { ascending: false });
+                (qaData || []).forEach(a => { if (!quizAttemptByQuiz[a.quiz_id]) quizAttemptByQuiz[a.quiz_id] = a; });
+            }
+
             const CATS = {
                 presentations: { label: 'Presentations', sub: 'Slides, PDFs & notes', icon: IC_PRES,  grad: 'linear-gradient(135deg,#7c3aed,#a855f7)', bkey: 'banner_presentations' },
                 lectures:      { label: 'Video Lectures', sub: 'Recorded video lessons', icon: IC_VIDEO, grad: 'linear-gradient(135deg,#0d2a52,#4a90d9)', bkey: 'banner_lectures' },
@@ -242,8 +250,14 @@
                     if (quizErr) body = secErr('quizzes');
                     else if (!quizzes.length) body = empty('No quizzes yet.');
                     else body = quizzes.map(q => {
-                        const action = `<button class="btn btn-primary" onclick="location.href='take-quiz.html?id=${encodeURIComponent(q.id)}'">Start Quiz</button>`;
-                        return itemRow({ locked: false, icon: IC_QUIZ, title: esc(q.title || 'Quiz'), sub: 'Answer all questions correctly to pass', action });
+                        const attempt = quizAttemptByQuiz[q.id];
+                        const action = `<button class="btn btn-primary" onclick="location.href='take-quiz.html?id=${encodeURIComponent(q.id)}'">${attempt ? 'Retake Quiz' : 'Start Quiz'}</button>`;
+                        let sub = 'Answer all questions correctly to pass';
+                        if (attempt) {
+                            const pass = attempt.score >= 100;
+                            sub += `<br><span style="color:${pass ? 'var(--green)' : 'var(--text-muted)'};font-weight:600;">Last attempt: ${Math.round(attempt.score)}%${pass ? ' — Passed ✓' : ''}</span> · <a href="quiz-review.html?id=${encodeURIComponent(q.id)}" style="color:var(--blue-500);font-weight:600;">View my answers</a>`;
+                        }
+                        return itemRow({ locked: false, icon: IC_QUIZ, title: esc(q.title || 'Quiz'), sub, action });
                     }).join('');
                 }
                 content.innerHTML = `${topCrumbs}

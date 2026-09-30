@@ -202,7 +202,7 @@
             const examIds = [...new Set((ec || []).map(r => r.exam_id))];
             let exams = [];
             if (examIds.length) {
-                const { data } = await db.from('exams').select('id, title, weight_percent, is_visible').in('id', examIds);
+                const { data } = await db.from('exams').select('id, title, weight_percent, is_visible, type').in('id', examIds);
                 exams = (data || []).filter(e => e.is_visible !== false);
             }
             const { data: oralsData } = await db.from('oral_presentations')
@@ -252,7 +252,7 @@
                     ${fbHtml}
                 </div>`;
             const rowsHtml = [
-                ...exams.map(e => { const a = attemptBy[e.id]; const sc = (a && a.score != null) ? Math.round(a.score) + '%' : pendPill; return row('📝', esc(e.title), 'Written exam · ' + Number(e.weight_percent) + '%', sc, ''); }),
+                ...exams.map(e => { const a = attemptBy[e.id]; const sc = (a && a.score != null) ? Math.round(a.score) + '%' : pendPill; const review = (e.type === 'manual' && a && a.score != null) ? `<div style="flex-basis:100%;margin-top:6px;"><a class="btn btn-ghost" style="font-size:12px;padding:5px 12px;" href="exam-review.html?id=${encodeURIComponent(e.id)}">View my answers</a></div>` : ''; return row('📝', esc(e.title), 'Written exam · ' + Number(e.weight_percent) + '%', sc, review); }),
                 ...orals.map(o => { const g = oralBy[o.id]; const sc = (g && g.score != null) ? Math.round(g.score) + '%' : pendPill; const fb = (g && g.feedback) ? `<div style="flex-basis:100%;margin-top:8px;font-size:13px;color:var(--text);background:var(--bg);border-left:3px solid var(--blue-400);padding:9px 11px;border-radius:6px;line-height:1.55;"><strong style="color:var(--navy-800);">Feedback:</strong> ${esc(g.feedback)}</div>` : ''; return row('🎤', esc(o.title), 'Oral presentation · ' + Number(o.weight_percent) + '%', sc, fb); }),
                 ...(hasQuizzes ? [ row('✅', 'Quizzes', 'Pass all quizzes · ' + quizWeight + '%', quizzesPassedAll ? '<span style="color:var(--green);">Passed ✓</span>' : '<span style="color:var(--text-muted);font-weight:600;">Pending — pass all quizzes</span>', '') ] : [])
             ].join('');

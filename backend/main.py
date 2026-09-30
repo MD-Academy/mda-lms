@@ -1823,6 +1823,46 @@ def student_exam_questions(body: ExamQReq, authorization: str = Header(...)):
     }
 
 
+class ExamReviewReq(BaseModel):
+    exam_id: str
+
+
+@app.post("/student/exam-review")
+def student_exam_review(body: ExamReviewReq, authorization: str = Header(...)):
+    """A student's own past exam answers, for their Gradebook. Only for
+    multiple-choice exams — PDF exams have no per-question answers to show.
+    Never returns correct_answer_index, same reasoning as quiz-review."""
+    user = _require_active_student(authorization)
+    e = _verify_exam_access(user.id, body.exam_id)
+    if e.get("type") != "manual":
+        raise HTTPException(status_code=400, detail="This exam has no answers to review.")
+    qs = supabase.table("exam_questions").select("id, question_text, options_json, correct_answer_index, order_index") \
+        .eq("exam_id", body.exam_id).order("order_index").execute().data or []
+    attempts = supabase.table("exam_attempts").select("score, passed, answers_json, completed_at") \
+        .eq("exam_id", body.exam_id).eq("student_id", user.id).limit(1).execute().data
+    attempt = attempts[0] if attempts else None
+    answers = (attempt or {}).get("answers_json") or {}
+
+    questions = []
+    for q in qs:
+        picked = answers.get(q["id"])
+        was_correct = False
+        try:
+            was_correct = picked is not None and int(picked) == q["correct_answer_index"]
+        except (ValueError, TypeError):
+            pass
+        questions.append({
+            "id": q["id"], "question_text": q["question_text"], "options_json": q["options_json"],
+            "picked_index": picked, "was_correct": was_correct
+        })
+
+    return {
+        "exam": {"id": e["id"], "title": e["title"], "pass_threshold": e["pass_threshold"]},
+        "questions": questions,
+        "attempt": {"score": attempt["score"], "passed": attempt["passed"], "completed_at": attempt["completed_at"]} if attempt else None
+    }
+
+
 @app.post("/student/exam-submit")
 def student_exam_submit(body: ExamSubmitReq, authorization: str = Header(...)):
     from datetime import datetime
@@ -1972,6 +2012,46 @@ def student_quiz_submit(body: QuizSubmitReq, authorization: str = Header(...)):
     }).execute()
 
     return {"score": score, "passed": passed, "total": total, "correct": correct, "wrong": wrong}
+
+
+class QuizReviewReq(BaseModel):
+    quiz_id: str
+
+
+@app.post("/student/quiz-review")
+def student_quiz_review(body: QuizReviewReq, authorization: str = Header(...)):
+    """A student's own past quiz answers, for their Gradebook/subject view.
+    Deliberately never returns correct_answer_index — only whether each of
+    the student's own picks was right or wrong, computed server-side, so the
+    real answer can't be read out of the network response either."""
+    user = _require_active_student(authorization)
+    q = _verify_quiz_access(user.id, body.quiz_id)
+    qs = supabase.table("quiz_questions").select("id, question_text, options_json, correct_answer_index, order_index") \
+        .eq("quiz_id", body.quiz_id).order("order_index").execute().data or []
+    attempts = supabase.table("quiz_attempts").select("score, answers_json, completed_at") \
+        .eq("quiz_id", body.quiz_id).eq("student_id", user.id) \
+        .order("completed_at", desc=True).limit(1).execute().data
+    attempt = attempts[0] if attempts else None
+    answers = (attempt or {}).get("answers_json") or {}
+
+    questions = []
+    for q2 in qs:
+        picked = answers.get(q2["id"])
+        was_correct = False
+        try:
+            was_correct = picked is not None and int(picked) == q2["correct_answer_index"]
+        except (ValueError, TypeError):
+            pass
+        questions.append({
+            "id": q2["id"], "question_text": q2["question_text"], "options_json": q2["options_json"],
+            "picked_index": picked, "was_correct": was_correct
+        })
+
+    return {
+        "quiz": {"id": q["id"], "title": q.get("title")},
+        "questions": questions,
+        "attempt": {"score": attempt["score"], "completed_at": attempt["completed_at"]} if attempt else None
+    }
 
 
 # ── GRADUATION: DIPLOMA + RECOMMENDATION LETTER ───────────────
