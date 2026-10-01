@@ -213,13 +213,17 @@
             }
 
             function renderCards() {
+                // A category only shows if it actually has content for this subject (or
+                // failed to load, so the error is still visible) — an empty category
+                // (e.g. a subject with no video lectures) is just left off entirely.
+                const cards = [
+                    (materials.length || matErr) ? catCard('presentations', materials.length, matErr) : '',
+                    (lectures.length || lecErr) ? catCard('lectures', lectures.length, lecErr) : '',
+                    (quizzes.length || quizErr) ? catCard('quizzes', quizzes.length, quizErr) : ''
+                ].join('');
                 content.innerHTML = `${topCrumbs}
                     <a class="btn btn-ghost" onclick="history.back()" style="margin-bottom:18px;cursor:pointer;">← Back</a>
-                    <div class="card-grid">
-                        ${catCard('presentations', materials.length, matErr)}
-                        ${catCard('lectures', lectures.length, lecErr)}
-                        ${catCard('quizzes', quizzes.length, quizErr)}
-                    </div>`;
+                    ${cards ? `<div class="card-grid">${cards}</div>` : empty('No content has been added to this subject yet.')}`;
             }
 
             function renderCategory(key) {
