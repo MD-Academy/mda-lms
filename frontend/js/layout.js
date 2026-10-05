@@ -44,6 +44,7 @@ function renderLayout(activeId, pageTitle, pageSub, profile) {
         </a>`).join('');
 
     document.getElementById('app-layout').innerHTML = `
+        <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
         <aside class="sidebar">
             <div class="sidebar-logo">
                 <img src="assets/images/mda-logo.png" alt="MDA">
@@ -62,9 +63,14 @@ function renderLayout(activeId, pageTitle, pageSub, profile) {
         </aside>
         <div class="main">
             <header class="topbar">
-                <div>
-                    <h1>${_esc(pageTitle)}</h1>
-                    ${pageSub ? `<div class="page-sub">${_esc(pageSub)}</div>` : ''}
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <button class="menu-toggle" id="menu-toggle" aria-label="Open menu" title="Menu">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                    </button>
+                    <div>
+                        <h1>${_esc(pageTitle)}</h1>
+                        ${pageSub ? `<div class="page-sub">${_esc(pageSub)}</div>` : ''}
+                    </div>
                 </div>
                 <div class="topbar-user">
                     <button class="topbar-bell" id="notif-bell" title="Notifications" onclick="openNotifications()">
@@ -101,6 +107,19 @@ function renderLayout(activeId, pageTitle, pageSub, profile) {
     document.getElementById('logout-btn').addEventListener('click', signOut);
     _setupAvatarUpload();
     _initNotifications();
+    _setupMobileMenu();
+}
+
+// ── MOBILE MENU (sidebar is off-screen under 900px with no other way to open it) ──
+function _setupMobileMenu() {
+    const sidebar = document.querySelector('.sidebar');
+    const backdrop = document.getElementById('sidebar-backdrop');
+    const toggle = document.getElementById('menu-toggle');
+    if (!sidebar || !backdrop || !toggle) return;
+    const close = () => { sidebar.classList.remove('open'); backdrop.classList.remove('open'); };
+    toggle.addEventListener('click', () => { sidebar.classList.toggle('open'); backdrop.classList.toggle('open'); });
+    backdrop.addEventListener('click', close);
+    document.querySelectorAll('.nav-menu .nav-item').forEach(a => a.addEventListener('click', close));
 }
 
 // ── NOTIFICATION BELL (announcements + upcoming classes) ──
