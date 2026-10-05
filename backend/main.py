@@ -1014,13 +1014,20 @@ def _run_daily_reminders(force=False):
         attendance_min = 80.0
     week_start = (today - timedelta(days=today.weekday())).isoformat()   # Monday of this week
     try:
-        enrolls = supabase.table("course_enrollments").select("student_id, course_id").execute().data or []
-        sessions_all = supabase.table("class_sessions").select("id, course_id").execute().data or []
+        # _fetch_all, not .select().execute() — a plain select with no .range() is
+        # silently capped at PostgREST's default 1000 rows. attendance is one row
+        # per (session x student), so any course with real history blows past that
+        # easily; a truncated read here makes present_ct undercount students whose
+        # rows fell outside the first 1000, sending them a false "missed lessons"
+        # email even though every session is marked present in the admin UI (which
+        # queries attendance scoped to one course page, well under the cap).
+        enrolls = _fetch_all("course_enrollments", "student_id, course_id")
+        sessions_all = _fetch_all("class_sessions", "id, course_id")
         session_course = {se["id"]: se["course_id"] for se in sessions_all}
         sessions_by_course = {}
         for se in sessions_all:
             sessions_by_course.setdefault(se["course_id"], []).append(se["id"])
-        att_all = supabase.table("attendance").select("session_id, student_id, present").execute().data or []
+        att_all = _fetch_all("attendance", "session_id, student_id, present")
         present_ct = {}
         for a in att_all:
             if not a.get("present"):
@@ -1028,7 +1035,7 @@ def _run_daily_reminders(force=False):
             cid = session_course.get(a["session_id"])
             if cid:
                 present_ct[(a["student_id"], cid)] = present_ct.get((a["student_id"], cid), 0) + 1
-        course_names = {c["id"]: c["name"] for c in (supabase.table("courses").select("id, name").execute().data or [])}
+        course_names = {c["id"]: c["name"] for c in _fetch_all("courses", "id, name")}
         enroll_by_student = {}
         for e in enrolls:
             enroll_by_student.setdefault(e["student_id"], set()).add(e["course_id"])
@@ -1084,7 +1091,7 @@ def _run_daily_reminders(force=False):
         quiz_weight = float(gsd.get("grade_quizzes_weight") or 10)
         bonus_cap = float(gsd.get("grade_bonus_cap") or 10)
 
-        enrolls_g = supabase.table("course_enrollments").select("student_id, course_id").execute().data or []
+        enrolls_g = _fetch_all("course_enrollments", "student_id, course_id")
         enroll_by_student_g = {}
         for e in enrolls_g:
             enroll_by_student_g.setdefault(e["student_id"], set()).add(e["course_id"])
@@ -1101,16 +1108,20 @@ def _run_daily_reminders(force=False):
             ex = exams_by_id.get(r["exam_id"])
             if ex and ex.get("is_visible") is not False:   # match the portal: null/true both count
                 exams_by_course.setdefault(r["course_id"], []).append((r["exam_id"], float(ex.get("weight_percent") or 0)))
+        # Same truncation risk as attendance above: one row per student per
+        # exam/oral, easily past 1000 for a real school — _fetch_all, not a
+        # plain select, or some students' real scores silently drop out and
+        # they get a false "low grades" email.
         exam_score = {}
-        for a in (supabase.table("exam_attempts").select("exam_id, student_id, score").execute().data or []):
+        for a in _fetch_all("exam_attempts", "exam_id, student_id, score"):
             if a.get("score") is not None:
                 exam_score[(a["student_id"], a["exam_id"])] = float(a["score"])
 
         orals_by_course = {}
-        for o in (supabase.table("oral_presentations").select("id, course_id, weight_percent").execute().data or []):
+        for o in _fetch_all("oral_presentations", "id, course_id, weight_percent"):
             orals_by_course.setdefault(o["course_id"], []).append((o["id"], float(o.get("weight_percent") or 0)))
         oral_score = {}
-        for g in (supabase.table("oral_grades").select("oral_presentation_id, student_id, score").execute().data or []):
+        for g in _fetch_all("oral_grades", "oral_presentation_id, student_id, score"):
             if g.get("score") is not None:
                 oral_score[(g["student_id"], g["oral_presentation_id"])] = float(g["score"])
 
