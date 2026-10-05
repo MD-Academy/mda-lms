@@ -199,7 +199,9 @@
                 if (term) q = q.or(`title.ilike.%${term}%,professor.ilike.%${term}%`);
                 if (dateFrom) q = q.gte('recorded_date', dateFrom);
                 if (dateTo) q = q.lte('recorded_date', dateTo);
-                q = q.order('recorded_date', { ascending: false }).order('created_at', { ascending: false }).range(from, to);
+                // Newest class day first; within the same day, the office's manual
+                // order (Part 1, Part 2...) wins over upload time.
+                q = q.order('recorded_date', { ascending: false }).order('order_index', { ascending: true, nullsFirst: false }).order('created_at', { ascending: false }).range(from, to);
 
                 const { data, error, count } = await q;
                 if (error) {
