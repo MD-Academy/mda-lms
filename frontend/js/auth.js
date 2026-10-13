@@ -161,6 +161,37 @@ async function _startLoginTracking(studentId) {
     } catch (e) { /* tracking must never block the page */ }
 }
 
+// ── PER-SECTION TIME TRACKING ──
+// How long a student spends on one specific page view (a subject, a quiz,
+// an exam, ...). Unlike login tracking, each page view is its own row —
+// started when the page calls this, ended on that page's unload — since the
+// point is to know where the time went, not just that the portal was open.
+function startSectionTracking(sectionType, sectionRef) {
+    (async () => {
+        try {
+            const { data: { session } } = await db.auth.getSession();
+            if (!session) return;
+            const { data, error } = await db.from('section_sessions')
+                .insert({ student_id: session.user.id, section_type: sectionType, section_ref: sectionRef || null })
+                .select('id').single();
+            if (error || !data) return;
+            const sid = data.id;
+
+            const heartbeat = setInterval(() => {
+                db.from('section_sessions').update({ last_seen_at: new Date().toISOString() }).eq('id', sid);
+            }, 15000);
+
+            const _sendEndBeacon = () => {
+                clearInterval(heartbeat);
+                const blob = new Blob([JSON.stringify({ session_id: sid, table: 'section_sessions' })], { type: 'application/json' });
+                navigator.sendBeacon(`${BACKEND_URL}/track/session-end`, blob);
+            };
+            window.addEventListener('beforeunload', _sendEndBeacon);
+            window.addEventListener('pagehide', _sendEndBeacon);
+        } catch (e) { /* tracking must never block the page */ }
+    })();
+}
+
 async function _endSession() {
     const sid = sessionStorage.getItem('mda_login_session_id');
     if (sid) {

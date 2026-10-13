@@ -26,6 +26,7 @@
             if (!auth) return;
             const examId = new URLSearchParams(location.search).get('id');
             if (!examId) { location.href = 'exams.html'; return; }
+            startSectionTracking('exam', examId);
             renderLayout('exams', 'Exam', 'Answer all questions and submit', auth.profile);
             const content = document.getElementById('page-content');
             content.innerHTML = `<div class="loader">Loading exam…</div>`;

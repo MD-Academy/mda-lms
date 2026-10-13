@@ -115,6 +115,7 @@
             const roomId = new URLSearchParams(location.search).get('id');
             const courseId = new URLSearchParams(location.search).get('course');
             if (!roomId) { location.href = 'courses.html'; return; }
+            startSectionTracking('subject', roomId);
 
             // Remember the last presentation opened so we can highlight it on return.
             const LAST_KEY = 'lastReadMat:' + roomId;

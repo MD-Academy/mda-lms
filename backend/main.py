@@ -88,7 +88,7 @@ class SessionEndReq(BaseModel):
     session_id: str
     table: str
 
-_TRACKABLE_SESSION_TABLES = {"login_sessions", "admin_sessions"}
+_TRACKABLE_SESSION_TABLES = {"login_sessions", "admin_sessions", "section_sessions"}
 
 @app.post("/track/session-end")
 async def track_session_end(body: SessionEndReq):

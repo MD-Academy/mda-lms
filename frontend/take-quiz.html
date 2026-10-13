@@ -25,6 +25,7 @@
             if (!auth) return;
             const quizId = new URLSearchParams(location.search).get('id');
             if (!quizId) { location.href = 'courses.html'; return; }
+            startSectionTracking('quiz', quizId);
             renderLayout('courses', 'Quiz', 'Answer every question correctly to pass', auth.profile);
             const content = document.getElementById('page-content');
             content.innerHTML = `<div class="loader">Loading quiz…</div>`;
