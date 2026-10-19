@@ -1609,15 +1609,20 @@ def get_signed_url_student(body: SignedUrlRequest, authorization: str = Header(.
     if mat.data:
         m = mat.data[0]
         if m.get("is_visible"):
-            enr = supabase.table("course_enrollments").select("course_id").eq("student_id", user.id).execute()
-            course_ids = [r["course_id"] for r in (enr.data or [])]
+            enr = supabase.table("course_enrollments").select("course_id, expires_at").eq("student_id", user.id).execute()
+            enrollments = enr.data or []
+            course_ids = [r["course_id"] for r in enrollments]
+            enr_expiry_by_course = {r["course_id"]: r.get("expires_at") for r in enrollments}
             if course_ids:
                 cs = supabase.table("course_subjects").select("course_id").eq("room_id", m["room_id"]).in_("course_id", course_ids).execute()
                 cand = [r["course_id"] for r in (cs.data or [])]
                 if cand:
-                    crs = supabase.table("courses").select("is_visible, expires_at").in_("id", cand).execute()
+                    crs = supabase.table("courses").select("id, is_visible, expires_at").in_("id", cand).execute()
                     for c in (crs.data or []):
-                        if c.get("is_visible") and (not c.get("expires_at") or c["expires_at"] >= today_iso):
+                        enr_exp = enr_expiry_by_course.get(c["id"])
+                        if (c.get("is_visible")
+                                and (not c.get("expires_at") or c["expires_at"] >= today_iso)
+                                and (not enr_exp or enr_exp >= today_iso)):
                             allowed = True
                             break
     else:
@@ -1799,8 +1804,10 @@ def _verify_exam_access(user_id: str, exam_id: str):
     if not ex or not ex[0].get("is_visible"):
         raise HTTPException(status_code=403, detail="This exam isn't available.")
     e = ex[0]
-    enr = supabase.table("course_enrollments").select("course_id").eq("student_id", user_id).execute().data
-    course_ids = [r["course_id"] for r in (enr or [])]
+    enr = supabase.table("course_enrollments").select("course_id, expires_at").eq("student_id", user_id).execute().data
+    enrollments = enr or []
+    course_ids = [r["course_id"] for r in enrollments]
+    enr_expiry_by_course = {r["course_id"]: r.get("expires_at") for r in enrollments}
     if not course_ids:
         raise HTTPException(status_code=403, detail="You don't have access to this exam.")
     ec = supabase.table("exam_courses").select("course_id").eq("exam_id", exam_id).in_("course_id", course_ids).execute().data
@@ -1808,8 +1815,13 @@ def _verify_exam_access(user_id: str, exam_id: str):
     if not cand:
         raise HTTPException(status_code=403, detail="You don't have access to this exam.")
     today_iso = date.today().isoformat()
-    crs = supabase.table("courses").select("is_visible, expires_at").in_("id", cand).execute().data
-    if not any(c.get("is_visible") and (not c.get("expires_at") or c["expires_at"] >= today_iso) for c in (crs or [])):
+    crs = supabase.table("courses").select("id, is_visible, expires_at").in_("id", cand).execute().data
+    if not any(
+        c.get("is_visible")
+        and (not c.get("expires_at") or c["expires_at"] >= today_iso)
+        and (not enr_expiry_by_course.get(c["id"]) or enr_expiry_by_course[c["id"]] >= today_iso)
+        for c in (crs or [])
+    ):
         raise HTTPException(status_code=403, detail="You don't have access to this exam.")
     return e
 
@@ -1941,8 +1953,10 @@ def _verify_quiz_access(user_id: str, quiz_id: str):
     rm = supabase.table("rooms").select("is_visible").eq("id", room_id).limit(1).execute().data
     if not rm or not rm[0].get("is_visible"):
         raise HTTPException(status_code=403, detail="This quiz isn't available.")
-    enr = supabase.table("course_enrollments").select("course_id").eq("student_id", user_id).execute().data
-    course_ids = [r["course_id"] for r in (enr or [])]
+    enr = supabase.table("course_enrollments").select("course_id, expires_at").eq("student_id", user_id).execute().data
+    enrollments = enr or []
+    course_ids = [r["course_id"] for r in enrollments]
+    enr_expiry_by_course = {r["course_id"]: r.get("expires_at") for r in enrollments}
     if not course_ids:
         raise HTTPException(status_code=403, detail="You don't have access to this quiz.")
     cs = supabase.table("course_subjects").select("course_id").eq("room_id", room_id).in_("course_id", course_ids).execute().data
@@ -1950,8 +1964,13 @@ def _verify_quiz_access(user_id: str, quiz_id: str):
     if not cand:
         raise HTTPException(status_code=403, detail="You don't have access to this quiz.")
     today_iso = date.today().isoformat()
-    crs = supabase.table("courses").select("is_visible, expires_at").in_("id", cand).execute().data
-    if not any(c.get("is_visible") and (not c.get("expires_at") or c["expires_at"] >= today_iso) for c in (crs or [])):
+    crs = supabase.table("courses").select("id, is_visible, expires_at").in_("id", cand).execute().data
+    if not any(
+        c.get("is_visible")
+        and (not c.get("expires_at") or c["expires_at"] >= today_iso)
+        and (not enr_expiry_by_course.get(c["id"]) or enr_expiry_by_course[c["id"]] >= today_iso)
+        for c in (crs or [])
+    ):
         raise HTTPException(status_code=403, detail="You don't have access to this quiz.")
     return q
 
