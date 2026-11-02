@@ -1021,7 +1021,12 @@ def _run_daily_reminders(force=False):
         # rows fell outside the first 1000, sending them a false "missed lessons"
         # email even though every session is marked present in the admin UI (which
         # queries attendance scoped to one course page, well under the cap).
-        enrolls = _fetch_all("course_enrollments", "student_id, course_id")
+        # attendance_tracked=false enrollments are access-only (e.g. cross-enrolled
+        # just to watch another branch's recordings) — they must not show up in
+        # that course's attendance roster/seeding (admin side) or trigger this
+        # "you missed classes" email for a course the student never attends.
+        enrolls = [e for e in _fetch_all("course_enrollments", "student_id, course_id, attendance_tracked")
+                   if e.get("attendance_tracked") is not False]
         sessions_all = _fetch_all("class_sessions", "id, course_id")
         session_course = {se["id"]: se["course_id"] for se in sessions_all}
         sessions_by_course = {}
