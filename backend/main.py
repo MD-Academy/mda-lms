@@ -147,6 +147,36 @@ def generate_password() -> str:
     return f"MDA-{random_part}"
 
 
+def _find_auth_user_id_by_email(email: str) -> Optional[str]:
+    """Look up an existing auth user by email by scanning admin.list_users()
+    (the admin API has no server-side email filter). Used to recover when a
+    create-user call fails because the account already exists — e.g. a
+    previous attempt created the auth user but failed before the profile
+    row was written, so a plain retry would otherwise fail forever on
+    "already registered" with no way to finish setting the account up."""
+    target = email.strip().lower()
+    page = 1
+    for _ in range(50):   # safety cap — ~10k users at 200/page
+        try:
+            users = supabase.auth.admin.list_users(page=page, per_page=200)
+        except Exception:
+            return None
+        if not users:
+            return None
+        for u in users:
+            if (getattr(u, "email", None) or "").strip().lower() == target:
+                return u.id
+        if len(users) < 200:
+            return None
+        page += 1
+    return None
+
+
+def _is_duplicate_email_error(e: Exception) -> bool:
+    msg = str(e).lower()
+    return "already" in msg and ("regist" in msg or "exist" in msg)
+
+
 def generate_username(full_name: str, existing: set) -> str:
     parts = full_name.lower().strip().split()
     if len(parts) >= 2:
@@ -250,6 +280,7 @@ def create_student(body: CreateStudentRequest, _=Depends(get_superadmin_user)):
 
     password = body.password or generate_password()
 
+    user_id = None
     try:
         result = supabase.auth.admin.create_user({
             "email": body.email,
@@ -260,13 +291,24 @@ def create_student(body: CreateStudentRequest, _=Depends(get_superadmin_user)):
                 "role": "student"
             }
         })
+        if not result or not getattr(result, "user", None):
+            raise HTTPException(status_code=400, detail="User creation returned no user object.")
+        user_id = result.user.id
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to create user: {str(e)}")
-
-    if not result or not getattr(result, "user", None):
-        raise HTTPException(status_code=400, detail="User creation returned no user object.")
-
-    user_id = result.user.id
+        # The auth account may already exist from a previous attempt that got
+        # this far but failed on the next step (e.g. the profile write below).
+        # Recover it instead of dead-ending on "already registered" forever.
+        if _is_duplicate_email_error(e):
+            user_id = _find_auth_user_id_by_email(body.email)
+            if user_id:
+                try:
+                    supabase.auth.admin.update_user_by_id(user_id, {"password": password})
+                except Exception:
+                    pass
+        if not user_id:
+            raise HTTPException(status_code=400, detail=f"Failed to create user: {str(e)}")
 
     update_data = {"full_name": body.full_name, "email": body.email, "role": "student", "status": "active"}
     if body.expiry_date:
@@ -327,17 +369,31 @@ def bulk_create_students(body: BulkCreateRequest, _=Depends(get_superadmin_user)
         existing_usernames.add(username)
 
         try:
-            result = supabase.auth.admin.create_user({
-                "email": entry.email,
-                "password": password,
-                "email_confirm": True,
-                "user_metadata": {
-                    "full_name": entry.full_name,
-                    "role": "student"
-                }
-            })
+            user_id = None
+            try:
+                result = supabase.auth.admin.create_user({
+                    "email": entry.email,
+                    "password": password,
+                    "email_confirm": True,
+                    "user_metadata": {
+                        "full_name": entry.full_name,
+                        "role": "student"
+                    }
+                })
+                user_id = result.user.id
+            except Exception as e:
+                # Recover an auth account left over from a previous failed attempt
+                # for this same email, instead of failing this row again.
+                if _is_duplicate_email_error(e):
+                    user_id = _find_auth_user_id_by_email(entry.email)
+                    if user_id:
+                        try:
+                            supabase.auth.admin.update_user_by_id(user_id, {"password": password})
+                        except Exception:
+                            pass
+                if not user_id:
+                    raise
 
-            user_id = result.user.id
             update_data = {
                 "id": user_id,
                 "full_name": entry.full_name,
@@ -1269,6 +1325,7 @@ def create_admin(body: CreateAdminRequest, _=Depends(get_superadmin_user)):
     role = body.role if body.role in ("admin", "superadmin") else "admin"
     password = generate_password()
 
+    user_id = None
     try:
         result = supabase.auth.admin.create_user({
             "email": body.email,
@@ -1276,13 +1333,22 @@ def create_admin(body: CreateAdminRequest, _=Depends(get_superadmin_user)):
             "email_confirm": True,
             "user_metadata": {"full_name": body.full_name, "role": role}
         })
+        if not result or not getattr(result, "user", None):
+            raise HTTPException(status_code=400, detail="User creation returned no user object.")
+        user_id = result.user.id
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to create user: {str(e)}")
+        if _is_duplicate_email_error(e):
+            user_id = _find_auth_user_id_by_email(body.email)
+            if user_id:
+                try:
+                    supabase.auth.admin.update_user_by_id(user_id, {"password": password})
+                except Exception:
+                    pass
+        if not user_id:
+            raise HTTPException(status_code=400, detail=f"Failed to create user: {str(e)}")
 
-    if not result or not getattr(result, "user", None):
-        raise HTTPException(status_code=400, detail="User creation returned no user object.")
-
-    user_id = result.user.id
     try:
         supabase.table("profiles").upsert({
             "id": user_id, "full_name": body.full_name, "email": body.email, "role": role, "status": "active"
