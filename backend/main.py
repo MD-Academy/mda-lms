@@ -177,6 +177,30 @@ def _is_duplicate_email_error(e: Exception) -> bool:
     return "already" in msg and ("regist" in msg or "exist" in msg)
 
 
+def _existing_profile_status(user_id: str) -> Optional[str]:
+    """Current profiles.status for this id, or None if there's no row yet."""
+    try:
+        res = supabase.table("profiles").select("status").eq("id", user_id).limit(1).execute()
+        rows = res.data or []
+        return rows[0].get("status") if rows else None
+    except Exception:
+        return None
+
+
+def _sync_auth_ban(user_id: str, suspended: bool) -> Optional[str]:
+    """Mirror profiles.status onto the actual Supabase Auth account so a
+    suspended user can't still sign in and mint a fresh session directly
+    against Supabase (status alone only stops them inside our own app/API —
+    the Auth account itself was otherwise left completely untouched).
+    Returns an error string on failure, else None."""
+    try:
+        supabase.auth.admin.update_user_by_id(user_id, {"ban_duration": "876000h" if suspended else "none"})
+        return None
+    except Exception as e:
+        logger.error("Failed to sync auth ban for %s (suspended=%s): %s", user_id, suspended, e)
+        return str(e)
+
+
 def generate_username(full_name: str, existing: set) -> str:
     parts = full_name.lower().strip().split()
     if len(parts) >= 2:
@@ -299,16 +323,28 @@ def create_student(body: CreateStudentRequest, _=Depends(get_superadmin_user)):
     except Exception as e:
         # The auth account may already exist from a previous attempt that got
         # this far but failed on the next step (e.g. the profile write below).
-        # Recover it instead of dead-ending on "already registered" forever.
+        # Recover it instead of dead-ending on "already registered" forever —
+        # but don't touch its password yet, until we know it isn't blocked.
         if _is_duplicate_email_error(e):
             user_id = _find_auth_user_id_by_email(body.email)
-            if user_id:
-                try:
-                    supabase.auth.admin.update_user_by_id(user_id, {"password": password})
-                except Exception:
-                    pass
         if not user_id:
             raise HTTPException(status_code=400, detail=f"Failed to create user: {str(e)}")
+
+    # Never silently reactivate (or hand new working credentials to) a
+    # blocked/suspended account just because this email was recovered or
+    # re-submitted — abort entirely with nothing changed.
+    if _existing_profile_status(user_id) == "suspended":
+        raise HTTPException(
+            status_code=409,
+            detail="This email belongs to an account that is BLOCKED/SUSPENDED. Nothing was changed — no password reset, no enrollment, no email. Use Students → Activate first if you intended to unblock them."
+        )
+
+    # Recovered account (pre-existing auth user, new/blank profile): give it
+    # the fresh password so the credentials shown below actually work.
+    try:
+        supabase.auth.admin.update_user_by_id(user_id, {"password": password})
+    except Exception:
+        pass
 
     update_data = {"full_name": body.full_name, "email": body.email, "role": "student", "status": "active"}
     if body.expiry_date:
@@ -386,13 +422,19 @@ def bulk_create_students(body: BulkCreateRequest, _=Depends(get_superadmin_user)
                 # for this same email, instead of failing this row again.
                 if _is_duplicate_email_error(e):
                     user_id = _find_auth_user_id_by_email(entry.email)
-                    if user_id:
-                        try:
-                            supabase.auth.admin.update_user_by_id(user_id, {"password": password})
-                        except Exception:
-                            pass
                 if not user_id:
                     raise
+
+            # Never silently reactivate (or hand new credentials to) a
+            # blocked/suspended account just because its email showed up in
+            # this import — skip the row entirely instead.
+            if _existing_profile_status(user_id) == "suspended":
+                raise Exception("This email belongs to a BLOCKED/SUSPENDED account — skipped, nothing changed. Use Students → Activate first if you intended to unblock them.")
+
+            try:
+                supabase.auth.admin.update_user_by_id(user_id, {"password": password})
+            except Exception:
+                pass
 
             update_data = {
                 "id": user_id,
@@ -456,7 +498,40 @@ def update_student(user_id: str, body: UpdateStudentRequest, _=Depends(get_super
         raise HTTPException(status_code=400, detail="No fields to update.")
 
     supabase.table("profiles").update(update_data).eq("id", user_id).execute()
-    return {"success": True, "updated": update_data}
+
+    ban_warning = None
+    if "status" in update_data:
+        ban_warning = _sync_auth_ban(user_id, update_data["status"] == "suspended")
+
+    resp = {"success": True, "updated": update_data}
+    if ban_warning:
+        resp["warning"] = (
+            f"Blocked in the app, but could not also lock the login itself: {ban_warning}. "
+            f"They are kept out of the LMS/admin app, but may still be able to sign in directly against "
+            f"Supabase until this is retried."
+        ) if update_data.get("status") == "suspended" else (
+            f"Activated in the app, but could not lift the login-level lock: {ban_warning}."
+        )
+    return resp
+
+
+@app.post("/admin/resync-suspension-bans")
+def resync_suspension_bans(_=Depends(get_superadmin_user)):
+    """One-off/occasional fix-up: apply the real Supabase Auth ban to every
+    profile already marked suspended. Needed once after the ban-sync feature
+    shipped — suspensions set before that only kept someone out of our own
+    app/API and never actually locked their Supabase Auth sign-in. Safe to
+    re-run any time; already-banned accounts are simply re-confirmed."""
+    rows = supabase.table("profiles").select("id, full_name").eq("status", "suspended").execute().data or []
+    failed = []
+    synced = 0
+    for r in rows:
+        err = _sync_auth_ban(r["id"], True)
+        if err:
+            failed.append({"id": r["id"], "full_name": r.get("full_name"), "error": err})
+        else:
+            synced += 1
+    return {"success": True, "total": len(rows), "synced": synced, "failed": failed}
 
 
 class StaffRoleReq(BaseModel):
@@ -1341,13 +1416,19 @@ def create_admin(body: CreateAdminRequest, _=Depends(get_superadmin_user)):
     except Exception as e:
         if _is_duplicate_email_error(e):
             user_id = _find_auth_user_id_by_email(body.email)
-            if user_id:
-                try:
-                    supabase.auth.admin.update_user_by_id(user_id, {"password": password})
-                except Exception:
-                    pass
         if not user_id:
             raise HTTPException(status_code=400, detail=f"Failed to create user: {str(e)}")
+
+    if _existing_profile_status(user_id) == "suspended":
+        raise HTTPException(
+            status_code=409,
+            detail="This email belongs to an account that is BLOCKED/SUSPENDED. Nothing was changed — no password reset, no email. Use Admins → Activate first if you intended to unblock them."
+        )
+
+    try:
+        supabase.auth.admin.update_user_by_id(user_id, {"password": password})
+    except Exception:
+        pass
 
     try:
         supabase.table("profiles").upsert({
