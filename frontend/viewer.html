@@ -138,7 +138,23 @@
             } catch (err) {
                 done = true; clearTimeout(watchdog);
                 console.error('[viewer] PDF load failed:', err);
-                document.getElementById('pdf-container').innerHTML = `<div id="status">This file couldn't be displayed in the reader.<br>(${esc((err && err.message) || 'error')})<br><br><a href="#" onclick="location.reload();return false;" style="color:#8ab4ff;">Refresh to retry</a></div>`;
+                const msg = (err && err.message) || 'error';
+                // This specific failure means the browser loaded the PDF engine but
+                // couldn't load/run its separate background worker script — almost
+                // always a content blocker, a corrupted cache, or an outdated
+                // browser, not a problem with this file. Give actionable guidance
+                // instead of the raw error.
+                const isWorkerFailure = /worker|WorkerMessageHandler/i.test(msg);
+                const help = isWorkerFailure
+                    ? `This usually means something on this device (a content/ad blocker, a browser extension, a corrupted cache, or an outdated browser) blocked a file the reader needs. Try, in order:<br>
+                        1) Reload the page (Cmd/Ctrl+Shift+R)<br>
+                        2) Open this in a Private/Incognito window<br>
+                        3) Try a different browser (Chrome or Firefox)<br>
+                        4) Turn off any content/ad blockers for this site<br>
+                        5) Make sure your browser is fully updated<br>
+                       If none of that helps, contact the office with the error text below.`
+                    : `<a href="#" onclick="location.reload();return false;" style="color:#8ab4ff;">Refresh to retry</a>`;
+                document.getElementById('pdf-container').innerHTML = `<div id="status">This file couldn't be displayed in the reader.<br><br>${help}<br><br><span style="opacity:.6;font-size:12px;">(${esc(msg)})</span></div>`;
             }
         })();
 
