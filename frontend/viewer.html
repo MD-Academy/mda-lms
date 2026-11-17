@@ -47,7 +47,7 @@
     <div id="pdf-container"><div id="status">Loading material…</div></div>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="lib/pdfjs/pdf.min.js?v=1"></script>
     <script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js"></script>
     <script src="js/config.js?v=1"></script>
     <script src="js/auth.js?v=1"></script>
@@ -130,7 +130,7 @@
             setStatus('Loading the document…');
             try {
                 if (typeof pdfjsLib === 'undefined') throw new Error('PDF viewer failed to load. Please refresh.');
-                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+                pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdfjs/pdf.worker.min.js?v=1';
                 PDF_DOC = await pdfjsLib.getDocument({ url: signedUrl }).promise;
                 done = true; clearTimeout(watchdog);
                 document.getElementById('view-toggle').style.display = 'inline-block';   // book view available for PDFs
